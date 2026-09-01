@@ -42,7 +42,7 @@ export const convocatoriaService = {
   },
 
   async obtenerConvocatoriaDelDia(): Promise<Convocatoria | null> {
-    const hoy = new Date().toISOString().split("T")[0];
+    const hoy = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase
       .from("convocatorias")
       .select("*")
