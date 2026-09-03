@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EquiposRouteImport } from './routes/equipos'
 import { Route as InscripcionRouteImport } from './routes/inscripcion'
+import { Route as PlantelRouteImport } from './routes/plantel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const InscripcionRoute = InscripcionRouteImport.update({
   path: '/inscripcion',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlantelRoute = PlantelRouteImport.update({
+  id: '/plantel',
+  path: '/plantel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/equipos': typeof EquiposRoute
   '/inscripcion': typeof InscripcionRoute
+  '/plantel': typeof PlantelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/equipos': typeof EquiposRoute
   '/inscripcion': typeof InscripcionRoute
+  '/plantel': typeof PlantelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/equipos': typeof EquiposRoute
   '/inscripcion': typeof InscripcionRoute
+  '/plantel': typeof PlantelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/equipos' | '/inscripcion'
+  fullPaths: '/' | '/equipos' | '/inscripcion' | '/plantel'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/equipos' | '/inscripcion'
-  id: '__root__' | '/' | '/equipos' | '/inscripcion'
+  to: '/' | '/equipos' | '/inscripcion' | '/plantel'
+  id: '__root__' | '/' | '/equipos' | '/inscripcion' | '/plantel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EquiposRoute: typeof EquiposRoute
   InscripcionRoute: typeof InscripcionRoute
+  PlantelRoute: typeof PlantelRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InscripcionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plantel': {
+      id: '/plantel'
+      path: '/plantel'
+      fullPath: '/plantel'
+      preLoaderRoute: typeof PlantelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EquiposRoute: EquiposRoute,
   InscripcionRoute: InscripcionRoute,
+  PlantelRoute: PlantelRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
