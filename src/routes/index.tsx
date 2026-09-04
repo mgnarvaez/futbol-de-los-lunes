@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  CloudRain,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Shuffle,
-  Square,
-  UserPlus,
-} from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, Shuffle, UserMinus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
