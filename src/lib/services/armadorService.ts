@@ -62,7 +62,7 @@ const jugadorAceptaLluvia = (insc: Inscripcion): boolean => {
 
 export const armadorService = {
   async armarEquipos(convocatoriaId: string): Promise<ResultadoArmado> {
-    // 0. BORRÓN Y CUENTA NUEVA: Resetear asignaciones y estados previos
+    // 0. Borrón y cuenta nueva: limpiar asignaciones previas
     await supabase
       .from("equipos_asignados")
       .delete()
@@ -73,7 +73,7 @@ export const armadorService = {
       .update({ estado: "PENDIENTE", motivo_no_asignacion: null })
       .eq("convocatoria_id", convocatoriaId);
 
-    // 1. Obtener inscripciones frescas, configuración y convocatoria
+    // 1. Obtener inscripciones, configuración y convocatoria
     const [resInsc, resConfig, resConv] = await Promise.all([
       supabase
         .from("inscripciones")
@@ -124,14 +124,23 @@ export const armadorService = {
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
-    // 2. Filtrado estricto por lluvia
+    // 2. FILTRADO Y PROTECCIÓN ANTI-DUPLICADOS (Por ID de jugador o Correo)
     const jugadoresValidos: Inscripcion[] = [];
     const idsExcluidosLluvia: string[] = [];
+    const emailsVistos = new Set<string>();
 
     ((inscripciones ?? []) as unknown as Inscripcion[]).forEach((insc) => {
+      const emailJugador = (insc.jugador as any)?.email?.trim().toLowerCase() || insc.jugador_id;
+      
+      // Si ya procesamos a este jugador en esta misma lista, lo ignoramos (evita duplicado)
+      if (emailsVistos.has(emailJugador)) {
+        return; 
+      }
+
       if (suspensionLluvia && !jugadorAceptaLluvia(insc)) {
         idsExcluidosLluvia.push(insc.id);
       } else {
+        emailsVistos.add(emailJugador);
         jugadoresValidos.push(insc);
       }
     });
@@ -151,7 +160,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 4. Calcular demanda para definir orden de sedes
+    // 4. Calcular demanda para ordenar sedes
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -163,7 +172,7 @@ export const armadorService = {
 
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
 
-    // 5. Asignación limpia desde cero
+    // 5. Asignación limpia
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -178,13 +187,11 @@ export const armadorService = {
       const sedeActiva = !sedesCanceladas.includes(pref);
       const jugFlexible = esFlexible(jug.flexible);
 
-      // A) Entra a su sede preferida si hay lugar y está activa
       if (sedeActiva && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      // B) Si no pudo entrar y ES FLEXIBLE, busca lugar en otra sede activa
       if (!asignado && jugFlexible) {
         for (const otraSede of ordenSedes) {
           if (!sedesCanceladas.includes(otraSede) && sedes[otraSede].titulares.length < capacidades[otraSede]) {
@@ -195,7 +202,6 @@ export const armadorService = {
         }
       }
 
-      // C) Si no entró como titular, va a suplentes
       if (!asignado) {
         if (sedeActiva) {
           sedes[pref].suplentes.push(jug);
@@ -211,7 +217,7 @@ export const armadorService = {
       }
     }
 
-    // 6. Trueque condicionado a llenar la sede (Regla exacta de Apps Script)
+    // 6. Trueque condicionado a llenar la sede
     ordenSedes.forEach((sedeIncompleta) => {
       if (!sedesCanceladas.includes(sedeIncompleta)) {
         const cupoTotal = capacidades[sedeIncompleta];
@@ -271,7 +277,7 @@ export const armadorService = {
       sedes[sede].suplentes.sort(compararPrioridad);
     }
 
-    // 8. Persistir nuevos asignados
+    // 8. Persistir en Supabase
     let ordenConvocatoria = 1;
     const filas: Record<string, unknown>[] = [];
     const idsTitulares: string[] = [];
@@ -305,7 +311,7 @@ export const armadorService = {
       if (errInsert) throw errInsert;
     }
 
-    // 9. Actualización final de estados
+    // 9. Actualización de estados
     const promesasActualizacion = [];
     if (idsTitulares.length > 0) {
       promesasActualizacion.push(
@@ -346,11 +352,16 @@ export const armadorService = {
 
     for (const sede of SEDES) {
       equipos.set(sede, {
-        titulares: filas.filter((e) => e.sede_id === sede && e.tipo_asignacion === "TITULAR"),
-        suplentes: filas.filter((e) => e.sede_id === sede && e.tipo_asignacion === "SUPLENTE"),
+        titulares: filesFilter(filas, sede, "TITULAR"),
+        suplentes: filesFilter(filas, sede, "SUPLENTE"),
       });
     }
 
     return equipos;
   },
 };
+
+// Función auxiliar interna para filtrar de forma limpia
+function filesFilter(filas: EquipoAsignado[], sede: Sede, tipo: string) {
+  return filas.filter((e) => e.sede_id === sede && e.tipo_asignacion === tipo);
+}
