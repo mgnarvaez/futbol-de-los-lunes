@@ -11,7 +11,7 @@ export interface ResultadoArmado {
   noAsignados: Inscripcion[];
 }
 
-// Convertidor general a booleano
+// Convertidor general para interruptores (lluvia, configuración, etc.)
 const esVerdadero = (val: unknown): boolean => {
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return val === 1;
@@ -22,24 +22,53 @@ const esVerdadero = (val: unknown): boolean => {
   return false;
 };
 
-// Evaluador ultra-estricto para el campo de lluvia
+// Evaluador flexible que reconoce "No juega con lluvia", "no", "NO", false, etc.
 const jugadorAceptaLluvia = (insc: Inscripcion): boolean => {
   const record = insc as unknown as Record<string, unknown>;
-  const val = record.juega_con_lluvia ?? record.juega_lluvia ?? record.juegaConLluvia;
+  const jugadorRecord = (record.jugador as Record<string, unknown>) || {};
 
-  if (typeof val === "boolean") return val;
-  if (typeof val === "number") return val === 1;
-  if (typeof val === "string") {
-    const v = val.trim().toLowerCase();
-    if (v === "no" || v === "false" || v === "0" || v === "n") return false;
-    if (v === "si" || v === "sí" || v === "true" || v === "s" || v === "1") return true;
+  // Busca el valor en todas las variantes posibles de nombres de columna
+  const posiblesValores = [
+    record.juega_con_lluvia,
+    record.juega_lluvia,
+    record.juegaConLluvia,
+    record.si_llueve_juega,
+    record.juega_si_llueve,
+    record.lluvia,
+    jugadorRecord.juega_con_lluvia,
+    jugadorRecord.juega_lluvia,
+    jugadorRecord.juegaConLluvia,
+    jugadorRecord.si_llueve_juega,
+    jugadorRecord.juega_si_llueve,
+    jugadorRecord.lluvia,
+  ];
+
+  for (const val of posiblesValores) {
+    if (val === undefined || val === null) continue;
+
+    if (typeof val === "boolean") {
+      if (!val) return false;
+    } else if (typeof val === "number") {
+      if (val === 0) return false;
+    } else if (typeof val === "string") {
+      const v = val.trim().toLowerCase();
+      // Si la respuesta contiene "no" (ej: "No juega con lluvia", "no", "false")
+      if (v.includes("no") || v.includes("false") || v === "0" || v === "n") {
+        return false;
+      }
+      if (v.includes("si") || v.includes("sí") || v.includes("true") || v === "1" || v === "s") {
+        return true;
+      }
+    }
   }
-  return false;
+
+  // Si no hay respuesta negativa explícita, por defecto se incluye
+  return true;
 };
 
 export const armadorService = {
   async armarEquipos(convocatoriaId: string): Promise<ResultadoArmado> {
-    // 1. Obtener inscripciones, configuración y convocatoria
+    // 1. Cargar datos en paralelo para máxima velocidad
     const [resInsc, resConfig, resConv] = await Promise.all([
       supabase
         .from("inscripciones")
@@ -67,10 +96,10 @@ export const armadorService = {
     const config = resConfig.data;
     const convocatoria = resConv.data;
 
-    // Detectar si la suspensión por lluvia está activa en cualquiera de las tablas
     const convRecord = convocatoria as unknown as Record<string, unknown>;
     const configRecord = config as unknown as Record<string, unknown> | null;
 
+    // Detectar si la lluvia está activada en la convocatoria o en el panel
     const suspensionLluvia =
       esVerdadero(convRecord?.suspension_lluvia) ||
       esVerdadero(convRecord?.lluvia) ||
@@ -80,30 +109,31 @@ export const armadorService = {
     let sedesCanceladas =
       ((convRecord?.sedes_canceladas as string[]) ?? []) as string[];
 
-    // REGLA: Si hay suspensión por lluvia, CANTON se suspende automáticamente
+    // REGLA: Si hay suspensión por lluvia, CANTON se cancela automáticamente
     if (suspensionLluvia && !sedesCanceladas.includes("CANTON")) {
       sedesCanceladas = [...sedesCanceladas, "CANTON"];
     }
 
     const puertos10vs10 = esVerdadero(configRecord?.puertos_10vs10);
 
-    // 2. Capacidades estándar de las sedes
+    // 2. Capacidades de las sedes
     const capacidades: Record<Sede, number> = {
       CANTON: 14,
       SM: 16,
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
-    // 3. FILTRADO ESTRICTO DE JUGADORES POR LLUVIA
-    const jugadoresValidos = ((inscripciones ?? []) as unknown as Inscripcion[]).filter(
-      (insc) => {
-        // Si hay lluvia y el jugador no la acepta (marcó "NO"), SE EXCLUYE COMPLETAMENTE
-        if (suspensionLluvia && !jugadorAceptaLluvia(insc)) {
-          return false;
-        }
-        return true;
+    // 3. FILTRADO STRICTO POR LLUVIA
+    const jugadoresValidos: Inscripcion[] = [];
+    const idsExcluidosLluvia: string[] = [];
+
+    ((inscripciones ?? []) as unknown as Inscripcion[]).forEach((insc) => {
+      if (suspensionLluvia && !jugadorAceptaLluvia(insc)) {
+        idsExcluidosLluvia.push(insc.id); // Registra los descalificados por lluvia
+      } else {
+        jugadoresValidos.push(insc);
       }
-    );
+    });
 
     // 4. Orden de prioridad estricto (1° Pago al día -> 2° VIP -> 3° Antigüedad)
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
@@ -123,7 +153,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 5. Ordenar sedes según demanda inicial
+    // 5. Ordenar sedes según la demanda inicial de jugadores
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -136,7 +166,7 @@ export const armadorService = {
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
     const sedesDisponibles = ordenSedes.filter((s) => !sedesCanceladas.includes(s));
 
-    // 6. ASIGNACIÓN INICIAL Y REDIRECCIÓN POR SEDES CANCELADAS
+    // 6. ASIGNACIÓN INICIAL CON REDIRECCIÓN DE SEDES SUSPENDIDAS
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -150,13 +180,13 @@ export const armadorService = {
       const pref = jug.sede_preferida;
       const sedePreferidaCancelada = sedesCanceladas.includes(pref);
 
-      // A) Entra a su sede preferida si NO está cancelada
+      // A) Entra a su sede preferida si no está cancelada
       if (!sedePreferidaCancelada && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      // B) Si su sede preferida está cancelada (ej. Cantón) O llena, y es flexible O su sede se canceló
+      // B) Si su sede se canceló (como Cantón) O está llena, y es flexible O su sede fue suspendida
       if (!asignado && (jug.flexible || sedePreferidaCancelada)) {
         for (const otraSede of sedesDisponibles) {
           if (sedes[otraSede].titulares.length < capacidades[otraSede]) {
@@ -167,7 +197,7 @@ export const armadorService = {
         }
       }
 
-      // C) Si no entró como titular en ninguna sede activa, pasa a suplentes de las activas
+      // C) Si no entró como titular en ninguna sede activa, va a suplentes
       if (!asignado) {
         if (!sedePreferidaCancelada) {
           sedes[pref].suplentes.push(jug);
@@ -183,7 +213,7 @@ export const armadorService = {
       }
     }
 
-    // 7. LÓGICA DE TRUEQUE CONDICIONADO A LLENAR SEDES INCOMPLETAS
+    // 7. TRUEQUE CONDICIONADO A LLENAR LA SEDE INCOMPLETA
     sedesDisponibles.forEach((sedeIncompleta) => {
       const cupoTotal = capacidades[sedeIncompleta];
       const anotados = sedes[sedeIncompleta].titulares.length;
@@ -279,7 +309,7 @@ export const armadorService = {
       if (errInsert) throw errInsert;
     }
 
-    // 10. Actualización de estados en lote
+    // 10. Actualización de estados en la base de datos
     const promesasActualizacion = [];
     if (idsTitulares.length > 0) {
       promesasActualizacion.push(
@@ -295,6 +325,14 @@ export const armadorService = {
           .from("inscripciones")
           .update({ estado: "SUPLENTE", motivo_no_asignacion: "Sin lugar como titular" })
           .in("id", idsSuplentes)
+      );
+    }
+    if (idsExcluidosLluvia.length > 0) {
+      promesasActualizacion.push(
+        supabase
+          .from("inscripciones")
+          .update({ estado: "NO_CONVOCADO", motivo_no_asignacion: "No juega con lluvia" })
+          .in("id", idsExcluidosLluvia)
       );
     }
 
