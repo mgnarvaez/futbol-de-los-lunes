@@ -28,10 +28,15 @@ export interface JugadorPlantelSheet {
   apodo: string;
   telefono: string;
   edad: string;
+  /** Edad declarada al momento de inscribirse en la planilla. */
+  edad_declarada: string;
+  /** Fecha en que se inscribió en la planilla (columna A). */
+  fecha_inscripcion: string;
   barrio: string;
   lote: string;
   puesto: string;
 }
+
 
 async function sheetsGet(path: string, params: [string, string][]): Promise<unknown> {
   const lovableKey = process.env["LOVABLE_API_KEY"];
