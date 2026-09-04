@@ -40,23 +40,29 @@ async function sheetsGet(path: string, params: [string, string][]): Promise<unkn
   const connectionKey = process.env["GOOGLE_SHEETS_API_KEY"];
   
   if (!lovableKey || !connectionKey) {
-    throw new Error("La conexión con Google Sheets no está configurada.");
+    console.warn("Faltan las credenciales de entorno de Google Sheets. Se retorna vacío temporalmente.");
+    return null;
   }
 
-  const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-  const res = await fetch(`${GATEWAY}${path}${query ? `?${query}` : ""}`, {
-    headers: {
-      Authorization: `Bearer ${lovableKey}`,
-      "X-Connection-Api-Key": connectionKey,
-    },
-  });
+  try {
+    const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    const res = await fetch(`${GATEWAY}${path}${query ? `?${query}` : ""}`, {
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "X-Connection-Api-Key": connectionKey,
+      },
+    });
 
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`Google Sheets error [${res.status}]: ${body}`);
-    throw new Error(`No se pudo leer la planilla [${res.status}]: ${body}`);
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`Google Sheets error [${res.status}]: ${body}`);
+      return null;
+    }
+    return res.json();
+  } catch (error) {
+    console.error("Excepción de red al conectar con Google Sheets:", error);
+    return null;
   }
-  return res.json();
 }
 
 const texto = (row: string[], i: number) => (row[i] ?? "").toString().trim();
@@ -100,10 +106,16 @@ export async function leerInscriptos(): Promise<InscriptoSheet[]> {
       ["ranges", `${TAB_GENERAL}!A2:L`],
       ["valueRenderOption", "FORMATTED_VALUE"],
     ],
-  )) as { valueRanges?: { values?: string[][] }[] };
+  )) as { valueRanges?: { values?: string[][] }[] } | null;
 
-  const [vip, general] = data.valueRanges ?? [];
+  if (!data || !data.valueRanges) {
+    console.warn("No se pudieron obtener los rangos de inscriptos desde Google Sheets.");
+    return [];
+  }
+
+  const [vip, general] = data.valueRanges;
   const filas: InscriptoSheet[] = [];
+  
   for (const row of vip?.values ?? []) {
     const item = mapInscripto(row, true);
     if (item) filas.push(item);
@@ -144,9 +156,13 @@ export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
   const data = (await sheetsGet(
     `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:L`,
     [["valueRenderOption", "FORMATTED_VALUE"]],
-  )) as { values?: string[][] };
+  )) as { values?: string[][] } | null;
 
-  return (data.values ?? [])
+  if (!data || !data.values) {
+    return [];
+  }
+
+  return data.values
     .map((row) => {
       const fecha_inscripcion = texto(row, 0);
       const edad_declarada = texto(row, 5);
