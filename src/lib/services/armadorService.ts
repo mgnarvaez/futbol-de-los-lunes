@@ -11,12 +11,28 @@ export interface ResultadoArmado {
   noAsignados: Inscripcion[];
 }
 
+// Evaluadores de texto/booleano idénticos a las reglas del Formulario
 const esVerdadero = (val: unknown): boolean => {
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return val === 1;
   if (typeof val === "string") {
     const v = val.trim().toLowerCase();
     return v === "si" || v === "sí" || v === "true" || v === "1" || v === "s";
+  }
+  return false;
+};
+
+const esFlexible = (val: unknown): boolean => {
+  if (typeof val === "boolean") return val;
+  if (typeof val === "number") return val === 1;
+  if (typeof val === "string") {
+    const v = val.trim().toLowerCase();
+    if (v.includes("solo") || v.includes("no") || v === "false" || v === "0" || v === "n") {
+      return false;
+    }
+    if (v.includes("cualquier") || v.includes("flexible") || v.includes("si") || v.includes("sí") || v === "1" || v === "s") {
+      return true;
+    }
   }
   return false;
 };
@@ -84,7 +100,7 @@ export const armadorService = {
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
-    // 1. Filtrado por lluvia
+    // 1. Filtrado de lluvia
     const jugadoresValidos: Inscripcion[] = [];
     const idsExcluidosLluvia: string[] = [];
 
@@ -96,7 +112,7 @@ export const armadorService = {
       }
     });
 
-    // 2. Orden de prioridad individual estricto (Pago al día -> VIP -> Antigüedad)
+    // 2. Orden de prioridad estricto: 1° Pago al día -> 2° VIP -> 3° Timestamp / Orden de llegada
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
       const pagoA = a.jugador?.estado_pago === "AL_DÍA";
       const pagoB = b.jugador?.estado_pago === "AL_DÍA";
@@ -111,7 +127,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 3. Demanda inicial para ordenar sedes
+    // 3. Demanda inicial para determinar qué sede se arma primero (igual que ordenHojas.sort en Apps Script)
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -122,9 +138,8 @@ export const armadorService = {
     });
 
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
-    const sedesDisponibles = ordenSedes.filter((s) => !sedesCanceladas.includes(s));
 
-    // 4. Asignación inicial
+    // 4. Asignación inicial (Paso 1, 2 y 3 del script de Google Sheets)
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -136,16 +151,19 @@ export const armadorService = {
     for (const jug of jugadoresValidos) {
       let asignado = false;
       const pref = jug.sede_preferida;
-      const sedePreferidaCancelada = sedesCanceladas.includes(pref);
+      const sedeActiva = !sedesCanceladas.includes(pref);
+      const jugFlexible = esFlexible(jug.flexible);
 
-      if (!sedePreferidaCancelada && sedes[pref].titulares.length < capacidades[pref]) {
+      // Paso 1: Intenta entrar en su sede preferida si está activa
+      if (sedeActiva && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      if (!asignado && (jug.flexible || sedePreferidaCancelada)) {
-        for (const otraSede of sedesDisponibles) {
-          if (sedes[otraSede].titulares.length < capacidades[otraSede]) {
+      // Paso 2: Si no pudo (llena o inactiva) y ES FLEXIBLE, busca en otra sede activa por orden de demanda
+      if (!asignado && jugFlexible) {
+        for (const otraSede of ordenSedes) {
+          if (!sedesCanceladas.includes(otraSede) && sedes[otraSede].titulares.length < capacidades[otraSede]) {
             sedes[otraSede].titulares.push(jug);
             asignado = true;
             break;
@@ -153,75 +171,84 @@ export const armadorService = {
         }
       }
 
+      // Paso 3: Si no entró como titular, va a suplentes
       if (!asignado) {
-        if (!sedePreferidaCancelada) {
+        if (sedeActiva) {
           sedes[pref].suplentes.push(jug);
         } else {
-          const primeraActiva = sedesDisponibles[0];
+          const primeraActiva = ordenSedes.find((s) => !sedesCanceladas.includes(s));
           if (primeraActiva) {
             sedes[primeraActiva].suplentes.push(jug);
           } else {
             sedes[pref].suplentes.push(jug);
           }
         }
-        if (!jug.flexible && !sedePreferidaCancelada) noAsignados.push(jug);
+        if (!jugFlexible && !sedeActiva) noAsignados.push(jug);
       }
     }
 
-    // 5. Trueque condicionado (Regla exacta de Google Apps Script)
-    sedesDisponibles.forEach((sedeIncompleta) => {
-      const cupoTotal = capacidades[sedeIncompleta];
-      const anotados = sedes[sedeIncompleta].titulares.length;
-      const faltantes = cupoTotal - anotados;
+    // 5. Trueque condicionado a llenar la sede (Réplica matemática exacta del Apps Script)
+    ordenSedes.forEach((sedeIncompleta) => {
+      if (!sedesCanceladas.includes(sedeIncompleta)) {
+        const cupoTotal = capacidades[sedeIncompleta];
+        const anotados = sedes[sedeIncompleta].titulares.length;
+        const faltantes = cupoTotal - anotados;
 
-      if (faltantes > 0) {
-        let truequesDisponibles = 0;
-        sedesDisponibles.forEach((otraSede) => {
-          if (otraSede !== sedeIncompleta) {
-            const flexiblesEnConv = sedes[otraSede].titulares.filter((j) => j.flexible).length;
-            const suplentesEsperando = sedes[otraSede].suplentes.length;
-            truequesDisponibles += Math.min(flexiblesEnConv, suplentesEsperando);
-          }
-        });
+        if (faltantes > 0) {
+          let truequesDisponibles = 0;
+          ordenSedes.forEach((otraSede) => {
+            if (otraSede !== sedeIncompleta && !sedesCanceladas.includes(otraSede)) {
+              const flexiblesEnConv = sedes[otraSede].titulares.filter((j) => esFlexible(j.flexible)).length;
+              const suplentesEsperando = sedes[otraSede].suplentes.length;
+              truequesDisponibles += Math.min(flexiblesEnConv, suplentesEsperando);
+            }
+          });
 
-        // Solo procede si los trueques con reemplazo alcanzan para completar la sede
-        if (truequesDisponibles >= faltantes) {
-          while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
-            let truequeRealizado = false;
+          // SOLO se ejecutan cambios si los trueques con reemplazo alcanzan para LLENAR la sede
+          if (truequesDisponibles >= faltantes) {
+            while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
+              let truequeRealizado = false;
 
-            for (const sedeLlena of sedesDisponibles) {
-              if (sedeLlena !== sedeIncompleta && sedes[sedeLlena].suplentes.length > 0) {
-                let indexFlexible = -1;
-                for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
-                  if (sedes[sedeLlena].titulares[j].flexible) {
-                    indexFlexible = j;
+              for (const sedeLlena of ordenSedes) {
+                if (
+                  sedeLlena !== sedeIncompleta &&
+                  !sedesCanceladas.includes(sedeLlena) &&
+                  sedes[sedeLlena].suplentes.length > 0
+                ) {
+                  let indexFlexible = -1;
+                  for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
+                    if (esFlexible(sedes[sedeLlena].titulares[j].flexible)) {
+                      indexFlexible = j;
+                      break;
+                    }
+                  }
+
+                  if (indexFlexible !== -1) {
+                    const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
+                    sedes[sedeIncompleta].titulares.push(jugadorFlexible);
+
+                    const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
+                    sedes[sedeLlena].titulares.push(suplentePromovido);
+
+                    truequeRealizado = true;
                     break;
                   }
                 }
-
-                if (indexFlexible !== -1) {
-                  const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
-                  sedes[sedeIncompleta].titulares.push(jugadorFlexible);
-
-                  const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
-                  sedes[sedeLlena].titulares.push(suplentePromovido);
-
-                  truequeRealizado = true;
-                  break;
-                }
               }
+              if (!truequeRealizado) break;
             }
-            if (!truequeRealizado) break;
           }
         }
       }
     });
 
+    // 6. Reordenamiento final por prioridad
     for (const sede of SEDES) {
       sedes[sede].titulares.sort(compararPrioridad);
       sedes[sede].suplentes.sort(compararPrioridad);
     }
 
+    // 7. Persistencia en Supabase
     const { error: errDelete } = await supabase
       .from("equipos_asignados")
       .delete()
@@ -262,6 +289,7 @@ export const armadorService = {
       if (errInsert) throw errInsert;
     }
 
+    // 8. Actualizaciones en lote
     const promesasActualizacion = [];
     if (idsTitulares.length > 0) {
       promesasActualizacion.push(
