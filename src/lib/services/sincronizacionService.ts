@@ -4,37 +4,32 @@ import { jugadorService } from "@/lib/services/jugadorService";
 
 export const FORM_URL = "https://forms.gle/71nzT7gzo4C99mxSA";
 
-/**
- * Toma los inscriptos leídos del Google Sheet y los deja reflejados en la base:
- * crea o actualiza obligatoriamente el jugador por email (actualizando apodos y datos)
- * y gestiona su inscripción en la convocatoria.
- */
 export const sincronizacionService = {
   async sincronizarInscriptos(
     convocatoriaId: string,
     inscriptos: InscriptoSheet[],
   ): Promise<{ nuevos: number; total: number }> {
-    // 1. Obtener inscripciones ya existentes para esta convocatoria
-    const { data: existentes, error: errorExistentes } = await supabase
+    
+    // 1. Borrón total: eliminamos todas las inscripciones previas de esta fecha
+    await supabase
       .from("inscripciones")
-      .select("jugador_id")
+      .delete()
       .eq("convocatoria_id", convocatoriaId);
-    if (errorExistentes) throw errorExistentes;
-
-    const yaInscriptos = new Set(
-      ((existentes ?? []) as { jugador_id: string }[]).map((i) => i.jugador_id),
-    );
 
     let nuevos = 0;
+    const emailsProcesados = new Set<string>();
 
     for (const fila of inscriptos) {
-      const sede = fila.sede ?? "CANTON";
+      const emailLimpio = (fila.email || "").trim().toLowerCase();
       
-      // 2. CREAR O ACTUALIZAR OBLIGATORIAMENTE AL JUGADOR
-      // Esto asegura que si cambiaste el apodo (ej. de FerB a FrrB) en la sheet, 
-      // se actualice de inmediato en la base de datos y en la pestaña Plantel.
+      // 2. Filtro anti-duplicados en la misma lectura
+      if (!emailLimpio || emailsProcesados.has(emailLimpio)) continue; 
+
+      const sede = fila.sede ?? "CANTON";
+
+      // 3. Crea o actualiza el jugador (aplica las correcciones de apodo)
       const jugador = await jugadorService.crearOActualizarJugador({
-        email: fila.email,
+        email: emailLimpio,
         nombre: fila.apodo || fila.email,
         apodo: fila.apodo || fila.email,
         sede_preferida: sede,
@@ -44,10 +39,7 @@ export const sincronizacionService = {
         activo: true,
       });
 
-      // 3. Si ya estaba inscripto en esta convocatoria, pasamos al siguiente (pero su perfil ya se actualizó arriba)
-      if (yaInscriptos.has(jugador.id)) continue;
-
-      // 4. Si es una inscripción nueva para la convocatoria actual, la insertamos
+      // 4. Inserta la inscripción de forma limpia
       const { error } = await supabase.from("inscripciones").insert([
         {
           convocatoria_id: convocatoriaId,
@@ -58,12 +50,13 @@ export const sincronizacionService = {
           estado: "NO_ASIGNADO",
         } as never,
       ]);
+
       if (error) throw error;
 
-      yaInscriptos.add(jugador.id);
+      emailsProcesados.add(emailLimpio);
       nuevos += 1;
     }
 
-    return { nuevos, total: inscriptos.length };
+    return { nuevos, total: nuevos };
   },
 };
