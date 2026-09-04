@@ -103,7 +103,17 @@ function PlantelPage() {
                       {[j.barrio, j.lote].filter(Boolean).join(" · ")}
                     </p>
                   )}
-                  {j.edad && <p className="text-muted-foreground">{j.edad} años</p>}
+                  {j.edad && (
+                    <p className="text-muted-foreground">
+                      {j.edad} años
+                      {j.edad_declarada && j.edad_declarada !== j.edad && (
+                        <span className="text-xs">
+                          {" "}
+                          (tenía {j.edad_declarada} al anotarse el {j.fecha_inscripcion})
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             ))}
