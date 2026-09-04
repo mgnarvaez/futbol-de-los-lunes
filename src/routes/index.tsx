@@ -55,6 +55,7 @@ function Panel() {
   } = useAppStore();
 
   const [armando, setArmando] = useState(false);
+  const [bajando, setBajando] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const preparando = useRef(false);
 
