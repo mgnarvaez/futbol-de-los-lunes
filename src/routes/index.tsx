@@ -46,15 +46,12 @@ function Panel() {
   const {
     convocatoriaActual,
     inscripciones,
-    jugadores,
     cargando,
     cargarConvocatoriaDelDia,
     crearConvocatoria,
     abrirConvocatoria,
-    cerrarConvocatoria,
     cargarJugadores,
     actualizarEstadoPago,
-    actualizarVip,
   } = useAppStore();
 
   const [armando, setArmando] = useState(false);
