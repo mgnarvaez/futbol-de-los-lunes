@@ -11,9 +11,28 @@ export interface ResultadoArmado {
   noAsignados: Inscripcion[];
 }
 
+// Funciones auxiliares para interpretar respuestas de texto o booleanos
+const esJuegaConLluvia = (val: unknown): boolean => {
+  if (typeof val === "boolean") return val;
+  if (typeof val === "string") {
+    const v = val.trim().toLowerCase();
+    return v === "si" || v === "sí" || v === "true" || v === "s";
+  }
+  return false;
+};
+
+const esVerdadero = (val: unknown): boolean => {
+  if (typeof val === "boolean") return val;
+  if (typeof val === "string") {
+    const v = val.trim().toLowerCase();
+    return v === "true" || v === "si" || v === "sí" || v === "1";
+  }
+  return Boolean(val);
+};
+
 export const armadorService = {
   async armarEquipos(convocatoriaId: string): Promise<ResultadoArmado> {
-    // 1. Obtener inscripciones, configuración y convocatoria en paralelo
+    // 1. Obtener inscripciones, configuración y convocatoria
     const [resInsc, resConfig, resConv] = await Promise.all([
       supabase
         .from("inscripciones")
@@ -41,16 +60,24 @@ export const armadorService = {
     const config = resConfig.data;
     const convocatoria = resConv.data;
 
-    const suspensionLluvia = Boolean(
-      (convocatoria as { suspension_lluvia?: boolean }).suspension_lluvia
-    );
-    const sedesCanceladas =
-      ((convocatoria as { sedes_canceladas?: string[] }).sedes_canceladas ?? []) as string[];
-    const puertos10vs10 = Boolean(
-      (config as { puertos_10vs10?: boolean } | null)?.puertos_10vs10
+    // Detectar si la suspensión por lluvia está activa
+    const suspensionLluvia = esVerdadero(
+      (convocatoria as { suspension_lluvia?: unknown }).suspension_lluvia
     );
 
-    // 2. Capacidades estándar de las sedes
+    let sedesCanceladas =
+      ((convocatoria as { sedes_canceladas?: string[] }).sedes_canceladas ?? []) as string[];
+
+    // REGLA: Si hay suspensión por lluvia, CANTON se suspende automáticamente
+    if (suspensionLluvia && !sedesCanceladas.includes("CANTON")) {
+      sedesCanceladas = [...sedesCanceladas, "CANTON"];
+    }
+
+    const puertos10vs10 = esVerdadero(
+      (config as { puertos_10vs10?: unknown } | null)?.puertos_10vs10
+    );
+
+    // 2. Capacidades de las sedes
     const capacidades: Record<Sede, number> = {
       CANTON: 14,
       SM: 16,
@@ -58,17 +85,17 @@ export const armadorService = {
     };
 
     // 3. FILTRADO POR LLUVIA
-    // Excluye automáticamente a quienes marcaron que NO juegan con lluvia si hay suspensión activa
+    // Si la suspensión por lluvia está activa, se descarta a quien respondió que NO
     const jugadoresValidos = ((inscripciones ?? []) as unknown as Inscripcion[]).filter(
       (insc) => {
-        if (suspensionLluvia && !insc.juega_con_lluvia) {
+        if (suspensionLluvia && !esJuegaConLluvia(insc.juega_con_lluvia)) {
           return false;
         }
         return true;
       }
     );
 
-    // 4. Orden de prioridad estricto (Pago al día -> VIP -> Antigüedad/Inscripción)
+    // 4. Orden de prioridad estricto (Pago al día -> VIP -> Antigüedad)
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
       const pagoA = a.jugador?.estado_pago === "AL_DÍA";
       const pagoB = b.jugador?.estado_pago === "AL_DÍA";
@@ -86,7 +113,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 5. Ordenar sedes por cantidad de demanda inicial
+    // 5. Ordenar sedes según demanda
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -99,7 +126,7 @@ export const armadorService = {
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
     const sedesDisponibles = ordenSedes.filter((s) => !sedesCanceladas.includes(s));
 
-    // 6. ASIGNACIÓN INICIAL CON REDIRECCIÓN DE SEDES SUSPENDIDAS
+    // 6. ASIGNACIÓN INICIAL Y REDIRECCIÓN DE CANTON / SEDES CANCELADAS
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -113,13 +140,13 @@ export const armadorService = {
       const pref = jug.sede_preferida;
       const sedePreferidaCancelada = sedesCanceladas.includes(pref);
 
-      // A) Intenta entrar en su sede preferida si NO está suspendida
+      // A) Entra a su sede preferida si NO está cancelada
       if (!sedePreferidaCancelada && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      // B) Si no pudo entrar a su preferida y es FLEXIBLE O su sede preferida está suspendida
+      // B) Si su sede se canceló (como Cantón) o está llena, pero es FLEXIBLE o su sede se suspendió
       if (!asignado && (jug.flexible || sedePreferidaCancelada)) {
         for (const otraSede of sedesDisponibles) {
           if (sedes[otraSede].titulares.length < capacidades[otraSede]) {
@@ -130,7 +157,7 @@ export const armadorService = {
         }
       }
 
-      // C) Si no logró entrar como titular en ninguna sede activa
+      // C) Si no entró como titular en ninguna sede activa, va a suplentes
       if (!asignado) {
         if (!sedePreferidaCancelada) {
           sedes[pref].suplentes.push(jug);
@@ -146,7 +173,7 @@ export const armadorService = {
       }
     }
 
-    // 7. LÓGICA DE TRUEQUE CONDICIONADO A LLENAR LA SEDE
+    // 7. TRUEQUE CONDICIONADO A LLENAR SEDES INCOMPLETAS
     sedesDisponibles.forEach((sedeIncompleta) => {
       const cupoTotal = capacidades[sedeIncompleta];
       const anotados = sedes[sedeIncompleta].titulares.length;
@@ -162,7 +189,6 @@ export const armadorService = {
           }
         });
 
-        // SOLO realiza trueques si alcanzan para completar la sede
         if (truequesDisponibles >= faltantes) {
           while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
             let truequeRealizado = false;
@@ -201,7 +227,7 @@ export const armadorService = {
       sedes[sede].suplentes.sort(compararPrioridad);
     }
 
-    // 9. Persistir cambios en la base de datos Supabase
+    // 9. Persistir cambios en Supabase
     const { error: errDelete } = await supabase
       .from("equipos_asignados")
       .delete()
