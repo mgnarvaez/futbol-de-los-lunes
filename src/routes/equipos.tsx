@@ -15,23 +15,14 @@ import { SEDES, SEDE_LABELS, type Convocatoria, type Sede } from "@/lib/types";
 export const Route = createFileRoute("/equipos")({
   head: () => ({
     meta: [
-      { title: "Equipos armados por sede | Fútbol" },
-      {
-        name: "description",
-        content:
-          "Mirá los titulares y suplentes asignados a cada sede para la convocatoria del día.",
-      },
-      { property: "og:title", content: "Equipos armados por sede | Fútbol" },
-      {
-        property: "og:description",
-        content: "Titulares y suplentes por sede para la convocatoria del día.",
-      },
+      { title: "Convocados por sede | Fútbol" },
+      { name: "description", content: "Titulares y suplentes convocados por sede para el día." },
     ],
   }),
-  component: EquiposPage,
+  component: ConvocadosPage,
 });
 
-function EquiposPage() {
+function ConvocadosPage() {
   const [convocatoria, setConvocatoria] = useState<Convocatoria | null>(null);
   const [equipos, setEquipos] = useState<Map<Sede, GrupoSede> | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -41,9 +32,10 @@ function EquiposPage() {
     try {
       const conv = await convocatoriaService.obtenerConvocatoriaDelDia();
       setConvocatoria(conv);
-      setEquipos(conv ? await armadorService.obtenerEquipos(conv.id) : null);
+      setEquipos(conv ? await armadorService.armarEquipos(conv.id) : null);
+      toast.success("Armado de sedes actualizado correctamente");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al cargar equipos");
+      toast.error(error instanceof Error ? error.message : "Error al cargar convocados");
     } finally {
       setCargando(false);
     }
@@ -73,21 +65,21 @@ function EquiposPage() {
       ];
     });
     if (filas.length === 0) {
-      toast.error("No hay equipos para exportar");
+      toast.error("No hay convocados para exportar");
       return;
     }
-    exportService.exportarCSV(filas, "equipos");
+    exportService.exportarCSV(filas, "convocados_por_sede");
   };
 
   return (
     <AppShell
-      title="Equipos"
+      title="Convocados"
       description="Titulares y suplentes asignados por sede."
     >
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => void cargar()} disabled={cargando}>
+        <Button variant="default" onClick={() => void cargar()} disabled={cargando}>
           <RefreshCw className={`mr-2 size-4 ${cargando ? "animate-spin" : ""}`} />
-          Actualizar
+          Armado de sedes
         </Button>
         <Button variant="outline" onClick={exportar}>
           <Download className="mr-2 size-4" />
@@ -98,7 +90,7 @@ function EquiposPage() {
       {!convocatoria ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No hay convocatoria para hoy.
+            No hay convocatoria activa para hoy.
           </CardContent>
         </Card>
       ) : (
@@ -131,13 +123,7 @@ function EquiposPage() {
   );
 }
 
-function Lista({
-  titulo,
-  items,
-}: {
-  titulo: string;
-  items: GrupoSede["titulares"];
-}) {
+function Lista({ titulo, items }: { titulo: string; items: GrupoSede["titulares"] }) {
   return (
     <div>
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
