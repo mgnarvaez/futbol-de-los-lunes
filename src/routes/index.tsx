@@ -220,14 +220,6 @@ function Panel() {
                   )}
                   Armar equipos
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void cerrarConvocatoria()}
-                  disabled={convocatoriaActual.estado !== "ABIERTA"}
-                >
-                  <Square className="mr-2 size-4" />
-                  Cerrar
-                </Button>
               </div>
 
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
