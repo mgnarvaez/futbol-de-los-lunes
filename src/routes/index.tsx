@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  CloudRain,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Shuffle,
-  Square,
-  UserPlus,
-} from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, Shuffle, UserMinus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -26,7 +18,13 @@ import {
 } from "@/lib/services/sincronizacionService";
 import { obtenerInscriptosSheet } from "@/lib/sheets.functions";
 import { useAppStore } from "@/lib/store";
-import { SEDES, SEDE_LABELS, type EstadoPago, type Sede } from "@/lib/types";
+import {
+  SEDES,
+  SEDE_LABELS,
+  type EstadoPago,
+  type Inscripcion,
+  type Sede,
+} from "@/lib/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -54,18 +52,16 @@ function Panel() {
   const {
     convocatoriaActual,
     inscripciones,
-    jugadores,
     cargando,
     cargarConvocatoriaDelDia,
     crearConvocatoria,
     abrirConvocatoria,
-    cerrarConvocatoria,
     cargarJugadores,
     actualizarEstadoPago,
-    actualizarVip,
   } = useAppStore();
 
   const [armando, setArmando] = useState(false);
+  const [bajando, setBajando] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const preparando = useRef(false);
 
@@ -174,6 +170,21 @@ function Panel() {
     }
   };
 
+  const bajar = async (inscripcion: Inscripcion) => {
+    setBajando(inscripcion.id);
+    try {
+      await convocatoriaService.darDeBaja(inscripcion);
+      toast.success(
+        `${inscripcion.jugador?.apodo || "El jugador"} se dio de baja de hoy`,
+      );
+      await cargarConvocatoriaDelDia();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al dar de baja");
+    } finally {
+      setBajando(null);
+    }
+  };
+
   return (
     <AppShell
       title="Panel de control"
@@ -230,14 +241,6 @@ function Panel() {
                     <Shuffle className="mr-2 size-4" />
                   )}
                   Armar equipos
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void cerrarConvocatoria()}
-                  disabled={convocatoriaActual.estado !== "ABIERTA"}
-                >
-                  <Square className="mr-2 size-4" />
-                  Cerrar
                 </Button>
               </div>
 
@@ -317,7 +320,7 @@ function Panel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Inscriptos cargados en el sistema ({inscripciones.length})
+            Anotados de hoy ({inscripciones.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -330,60 +333,46 @@ function Panel() {
               {inscripciones.map((i) => (
                 <li
                   key={i.id}
-                  className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-sm"
+                  className="flex flex-wrap items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-sm"
                 >
                   <span className="truncate text-foreground">
                     {i.jugador?.apodo || i.jugador?.nombre || "Jugador"}
                   </span>
                   <Badge variant="outline">{i.sede_preferida}</Badge>
                   {i.flexible && <Badge variant="secondary">Flexible</Badge>}
-                  <Badge className="ml-auto" variant="outline">
-                    {i.estado}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-base">Jugadores del sistema ({jugadores.length})</CardTitle>
-          <UserPlus className="size-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          {jugadores.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin jugadores registrados.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {jugadores.map((j) => (
-                <li key={j.id} className="flex flex-wrap items-center gap-3 py-3">
-                  <div className="mr-auto min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {j.apodo || j.nombre}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">{j.email}</p>
+                  <Badge variant="outline">{i.estado}</Badge>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={
+                        i.jugador?.estado_pago === "DEBE" ? "destructive" : "outline"
+                      }
+                      onClick={() =>
+                        i.jugador &&
+                        void actualizarEstadoPago(
+                          i.jugador.id,
+                          (i.jugador.estado_pago === "DEBE"
+                            ? "AL_DÍA"
+                            : "DEBE") as EstadoPago,
+                        )
+                      }
+                    >
+                      {i.jugador?.estado_pago === "DEBE" ? "Debe" : "Al día"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={bajando === i.id}
+                      onClick={() => void bajar(i)}
+                    >
+                      {bajando === i.id ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <UserMinus className="mr-2 size-4" />
+                      )}
+                      Bajar
+                    </Button>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs font-normal text-muted-foreground">VIP</Label>
-                    <Switch
-                      checked={j.es_vip}
-                      onCheckedChange={(v) => void actualizarVip(j.id, v)}
-                    />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={j.estado_pago === "DEBE" ? "destructive" : "outline"}
-                    onClick={() =>
-                      void actualizarEstadoPago(
-                        j.id,
-                        (j.estado_pago === "DEBE" ? "AL_DÍA" : "DEBE") as EstadoPago,
-                      )
-                    }
-                  >
-                    {j.estado_pago === "DEBE" ? "Debe" : "Al día"}
-                  </Button>
                 </li>
               ))}
             </ul>
