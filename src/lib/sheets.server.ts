@@ -37,28 +37,35 @@ export interface JugadorPlantelSheet {
   puesto: string;
 }
 
-
 async function sheetsGet(path: string, params: [string, string][]): Promise<unknown> {
   const lovableKey = process.env["LOVABLE_API_KEY"];
   const connectionKey = process.env["GOOGLE_SHEETS_API_KEY"];
+  
+  // Protección: si falta la clave un milisegundo, no interrumpe la app
   if (!lovableKey || !connectionKey) {
-    throw new Error("La conexión con Google Sheets no está configurada.");
+    console.warn("Conexión con Google Sheets no disponible momentáneamente.");
+    return null;
   }
 
-  const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-  const res = await fetch(`${GATEWAY}${path}${query ? `?${query}` : ""}`, {
-    headers: {
-      Authorization: `Bearer ${lovableKey}`,
-      "X-Connection-Api-Key": connectionKey,
-    },
-  });
+  try {
+    const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    const res = await fetch(`${GATEWAY}${path}${query ? `?${query}` : ""}`, {
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "X-Connection-Api-Key": connectionKey,
+      },
+    });
 
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`Google Sheets error [${res.status}]: ${body}`);
-    throw new Error(`No se pudo leer la planilla [${res.status}]: ${body}`);
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`Google Sheets error [${res.status}]: ${body}`);
+      return null;
+    }
+    return res.json();
+  } catch (error) {
+    console.error("Error de red al consultar Google Sheets:", error);
+    return null;
   }
-  return res.json();
 }
 
 const texto = (row: string[], i: number) => (row[i] ?? "").toString().trim();
@@ -95,29 +102,35 @@ function mapInscripto(row: string[], vip: boolean): InscriptoSheet | null {
 }
 
 export async function leerInscriptos(): Promise<InscriptoSheet[]> {
-  const data = (await sheetsGet(
-    `/spreadsheets/${SHEET_INSCRIPTOS_ID}/values:batchGet`,
-    [
-      ["ranges", `${TAB_VIP}!A2:L`],
-      ["ranges", `${TAB_GENERAL}!A2:L`],
-      ["valueRenderOption", "FORMATTED_VALUE"],
-    ],
-  )) as { valueRanges?: { values?: string[][] }[] };
+  try {
+    const data = (await sheetsGet(
+      `/spreadsheets/${SHEET_INSCRIPTOS_ID}/values:batchGet`,
+      [
+        ["ranges", `${TAB_VIP}!A2:L`],
+        ["ranges", `${TAB_GENERAL}!A2:L`],
+        ["valueRenderOption", "FORMATTED_VALUE"],
+      ],
+    )) as { valueRanges?: { values?: string[][] }[] } | null;
 
-  const [vip, general] = data.valueRanges ?? [];
-  const filas: InscriptoSheet[] = [];
-  for (const row of vip?.values ?? []) {
-    const item = mapInscripto(row, true);
-    if (item) filas.push(item);
+    if (!data) return [];
+
+    const [vip, general] = data.valueRanges ?? [];
+    const filas: InscriptoSheet[] = [];
+    for (const row of vip?.values ?? []) {
+      const item = mapInscripto(row, true);
+      if (item) filas.push(item);
+    }
+    for (const row of general?.values ?? []) {
+      const item = mapInscripto(row, false);
+      if (item) filas.push(item);
+    }
+    return filas;
+  } catch (error) {
+    console.error("Error al procesar inscriptos:", error);
+    return [];
   }
-  for (const row of general?.values ?? []) {
-    const item = mapInscripto(row, false);
-    if (item) filas.push(item);
-  }
-  return filas;
 }
 
-/** Parsea "1/9/2026 10:24:49" o "1/9/2026" (formato d/m/aaaa de Google). */
 function parsearFecha(valor: string): Date | null {
   const [fechaParte] = valor.trim().split(" ");
   const partes = (fechaParte ?? "").split(/[/-]/).map((p) => Number(p));
@@ -128,7 +141,6 @@ function parsearFecha(valor: string): Date | null {
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 }
 
-/** Edad de hoy = edad declarada + años completos transcurridos desde la inscripción. */
 function edadActual(edadDeclarada: string, fechaInscripcion: string): string {
   const base = Number(edadDeclarada.replace(/\D/g, ""));
   const fecha = parsearFecha(fechaInscripcion);
@@ -145,29 +157,36 @@ function edadActual(edadDeclarada: string, fechaInscripcion: string): string {
 }
 
 export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
-  const data = (await sheetsGet(
-    `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:L`,
-    [["valueRenderOption", "FORMATTED_VALUE"]],
-  )) as { values?: string[][] };
+  try {
+    const data = (await sheetsGet(
+      `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:L`,
+      [["valueRenderOption", "FORMATTED_VALUE"]],
+    )) as { values?: string[][] } | null;
 
-  return (data.values ?? [])
-    .map((row) => {
-      const fecha_inscripcion = texto(row, 0);
-      const edad_declarada = texto(row, 5);
-      return {
-        email: texto(row, 1).toLowerCase(),
-        email_alternativo: texto(row, 11).toLowerCase(),
-        nombre: texto(row, 2),
-        apodo: texto(row, 3),
-        telefono: texto(row, 4),
-        edad: edadActual(edad_declarada, fecha_inscripcion),
-        edad_declarada,
-        fecha_inscripcion,
-        barrio: texto(row, 6),
-        lote: texto(row, 7),
-        puesto: texto(row, 8),
-      };
-    })
-    .filter((j) => j.email || j.nombre)
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    if (!data) return [];
+
+    return (data.values ?? [])
+      .map((row) => {
+        const fecha_inscripcion = texto(row, 0);
+        const edad_declarada = texto(row, 5);
+        return {
+          email: texto(row, 1).toLowerCase(),
+          email_alternativo: texto(row, 11).toLowerCase(),
+          nombre: texto(row, 2),
+          apodo: texto(row, 3),
+          telefono: texto(row, 4),
+          edad: edadActual(edad_declarada, fecha_inscripcion),
+          edad_declarada,
+          fecha_inscripcion,
+          barrio: texto(row, 6),
+          lote: texto(row, 7),
+          puesto: texto(row, 8),
+        };
+      })
+      .filter((j) => j.email || j.nombre)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  } catch (error) {
+    console.error("Error al procesar el plantel:", error);
+    return [];
+  }
 }
