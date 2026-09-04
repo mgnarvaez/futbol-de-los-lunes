@@ -13,7 +13,7 @@ export interface ResultadoArmado {
 
 export const armadorService = {
   async armarEquipos(convocatoriaId: string): Promise<ResultadoArmado> {
-    // 1. Obtener inscripciones, configuración y convocatoria
+    // 1. Obtener inscripciones, configuración y convocatoria en paralelo
     const [resInsc, resConfig, resConv] = await Promise.all([
       supabase
         .from("inscripciones")
@@ -57,16 +57,18 @@ export const armadorService = {
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
-    // 3. Filtrar por lluvia y suspensiones de sede
+    // 3. FILTRADO POR LLUVIA
+    // Excluye automáticamente a quienes marcaron que NO juegan con lluvia si hay suspensión activa
     const jugadoresValidos = ((inscripciones ?? []) as unknown as Inscripcion[]).filter(
       (insc) => {
-        if (suspensionLluvia && !insc.juega_con_lluvia) return false;
-        if (sedesCanceladas.includes(insc.sede_preferida) && !insc.flexible) return false;
+        if (suspensionLluvia && !insc.juega_con_lluvia) {
+          return false;
+        }
         return true;
       }
     );
 
-    // 4. Orden de prioridad individual ESTRICTO (Pago al día -> VIP -> Antigüedad/Índice)
+    // 4. Orden de prioridad estricto (Pago al día -> VIP -> Antigüedad/Inscripción)
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
       const pagoA = a.jugador?.estado_pago === "AL_DÍA";
       const pagoB = b.jugador?.estado_pago === "AL_DÍA";
@@ -84,7 +86,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 5. CALCULAR DEMANDA PARA ORDENAR QUÉ SEDE SE ARMA PRIMERO
+    // 5. Ordenar sedes por cantidad de demanda inicial
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -94,10 +96,10 @@ export const armadorService = {
       }
     });
 
-    // Ordena sedes de mayor a menor preferencia inicial
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
+    const sedesDisponibles = ordenSedes.filter((s) => !sedesCanceladas.includes(s));
 
-    // 6. ASIGNACIÓN INICIAL POR PRIORIDAD ESTRICTA
+    // 6. ASIGNACIÓN INICIAL CON REDIRECCIÓN DE SEDES SUSPENDIDAS
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -109,20 +111,18 @@ export const armadorService = {
     for (const jug of jugadoresValidos) {
       let asignado = false;
       const pref = jug.sede_preferida;
+      const sedePreferidaCancelada = sedesCanceladas.includes(pref);
 
-      // 1. Intenta entrar en su sede preferida
-      if (!sedesCanceladas.includes(pref) && sedes[pref].titulares.length < capacidades[pref]) {
+      // A) Intenta entrar en su sede preferida si NO está suspendida
+      if (!sedePreferidaCancelada && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      // 2. Si no pudo y es FLEXIBLE, busca en orden de demanda de las sedes
-      if (!asignado && jug.flexible) {
-        for (const otraSede of ordenSedes) {
-          if (
-            !sedesCanceladas.includes(otraSede) &&
-            sedes[otraSede].titulares.length < capacidades[otraSede]
-          ) {
+      // B) Si no pudo entrar a su preferida y es FLEXIBLE O su sede preferida está suspendida
+      if (!asignado && (jug.flexible || sedePreferidaCancelada)) {
+        for (const otraSede of sedesDisponibles) {
+          if (sedes[otraSede].titulares.length < capacidades[otraSede]) {
             sedes[otraSede].titulares.push(jug);
             asignado = true;
             break;
@@ -130,88 +130,78 @@ export const armadorService = {
         }
       }
 
-      // 3. Si no logró entrar como titular, va a suplentes
+      // C) Si no logró entrar como titular en ninguna sede activa
       if (!asignado) {
-        if (!sedesCanceladas.includes(pref)) {
+        if (!sedePreferidaCancelada) {
           sedes[pref].suplentes.push(jug);
         } else {
-          const primeraActiva = ordenSedes.find((s) => !sedesCanceladas.includes(s));
+          const primeraActiva = sedesDisponibles[0];
           if (primeraActiva) {
             sedes[primeraActiva].suplentes.push(jug);
           } else {
             sedes[pref].suplentes.push(jug);
           }
         }
-        if (!jug.flexible) noAsignados.push(jug);
+        if (!jug.flexible && !sedePreferidaCancelada) noAsignados.push(jug);
       }
     }
 
-    // 7. LÓGICA DE OPTIMIZACIÓN (TRUEQUE CONDICIONADO A LLENAR LA SEDE INCOMPLETA)
-    ordenSedes.forEach((sedeIncompleta) => {
-      if (!sedesCanceladas.includes(sedeIncompleta)) {
-        const cupoTotal = capacidades[sedeIncompleta];
-        const anotados = sedes[sedeIncompleta].titulares.length;
-        const faltantes = cupoTotal - anotados;
+    // 7. LÓGICA DE TRUEQUE CONDICIONADO A LLENAR LA SEDE
+    sedesDisponibles.forEach((sedeIncompleta) => {
+      const cupoTotal = capacidades[sedeIncompleta];
+      const anotados = sedes[sedeIncompleta].titulares.length;
+      const faltantes = cupoTotal - anotados;
 
-        if (faltantes > 0) {
-          // Contar cuántos trueques totales son posibles desde las sedes llenas
-          let truequesDisponibles = 0;
-          ordenSedes.forEach((otraSede) => {
-            if (otraSede !== sedeIncompleta && !sedesCanceladas.includes(otraSede)) {
-              const flexiblesEnConv = sedes[otraSede].titulares.filter((j) => j.flexible).length;
-              const suplentesEsperando = sedes[otraSede].suplentes.length;
-              truequesDisponibles += Math.min(flexiblesEnConv, suplentesEsperando);
-            }
-          });
+      if (faltantes > 0) {
+        let truequesDisponibles = 0;
+        sedesDisponibles.forEach((otraSede) => {
+          if (otraSede !== sedeIncompleta) {
+            const flexiblesEnConv = sedes[otraSede].titulares.filter((j) => j.flexible).length;
+            const suplentesEsperando = sedes[otraSede].suplentes.length;
+            truequesDisponibles += Math.min(flexiblesEnConv, suplentesEsperando);
+          }
+        });
 
-          // SOLO se ejecutan cambios si los trueques alcanzan para LLENAR la sede
-          if (truequesDisponibles >= faltantes) {
-            while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
-              let truequeRealizado = false;
+        // SOLO realiza trueques si alcanzan para completar la sede
+        if (truequesDisponibles >= faltantes) {
+          while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
+            let truequeRealizado = false;
 
-              for (const sedeLlena of ordenSedes) {
-                if (
-                  sedeLlena !== sedeIncompleta &&
-                  !sedesCanceladas.includes(sedeLlena) &&
-                  sedes[sedeLlena].suplentes.length > 0
-                ) {
-                  // Buscar de atrás para adelante al flexible de MENOR prioridad en la sede llena
-                  let indexFlexible = -1;
-                  for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
-                    if (sedes[sedeLlena].titulares[j].flexible) {
-                      indexFlexible = j;
-                      break;
-                    }
-                  }
-
-                  if (indexFlexible !== -1) {
-                    // Mover al jugador flexible a la sede incompleta
-                    const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
-                    sedes[sedeIncompleta].titulares.push(jugadorFlexible);
-
-                    // Ascender al primer suplente de la sede llena a titular
-                    const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
-                    sedes[sedeLlena].titulares.push(suplentePromovido);
-
-                    truequeRealizado = true;
+            for (const sedeLlena of sedesDisponibles) {
+              if (sedeLlena !== sedeIncompleta && sedes[sedeLlena].suplentes.length > 0) {
+                let indexFlexible = -1;
+                for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
+                  if (sedes[sedeLlena].titulares[j].flexible) {
+                    indexFlexible = j;
                     break;
                   }
                 }
+
+                if (indexFlexible !== -1) {
+                  const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
+                  sedes[sedeIncompleta].titulares.push(jugadorFlexible);
+
+                  const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
+                  sedes[sedeLlena].titulares.push(suplentePromovido);
+
+                  truequeRealizado = true;
+                  break;
+                }
               }
-              if (!truequeRealizado) break;
             }
+            if (!truequeRealizado) break;
           }
         }
       }
     });
 
-    // 8. Reordenar titularidades y suplencias por prioridad tras los trueques
+    // 8. Reordenar listas finales por prioridad
     for (const sede of SEDES) {
       sedes[sede].titulares.sort(compararPrioridad);
       sedes[sede].suplentes.sort(compararPrioridad);
     }
 
-    // 9. Limpiar y persistir en Supabase
+    // 9. Persistir cambios en la base de datos Supabase
     const { error: errDelete } = await supabase
       .from("equipos_asignados")
       .delete()
@@ -252,7 +242,7 @@ export const armadorService = {
       if (errInsert) throw errInsert;
     }
 
-    // 10. Actualizar estados de inscripción en lote
+    // 10. Actualización de estados en lote
     const promesasActualizacion = [];
     if (idsTitulares.length > 0) {
       promesasActualizacion.push(
