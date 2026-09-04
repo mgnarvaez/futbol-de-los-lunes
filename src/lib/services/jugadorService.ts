@@ -17,7 +17,7 @@ export const jugadorService = {
     const { data, error } = await supabase
       .from("jugadores")
       .select("*")
-      .eq("email", email)
+      .eq("email", email.trim().toLowerCase())
       .maybeSingle();
 
     if (error) throw error;
