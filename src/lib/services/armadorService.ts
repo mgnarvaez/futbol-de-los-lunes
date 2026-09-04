@@ -84,6 +84,7 @@ export const armadorService = {
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
+    // 1. Filtrado por lluvia
     const jugadoresValidos: Inscripcion[] = [];
     const idsExcluidosLluvia: string[] = [];
 
@@ -95,6 +96,7 @@ export const armadorService = {
       }
     });
 
+    // 2. Orden de prioridad individual estricto (Pago al día -> VIP -> Antigüedad)
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
       const pagoA = a.jugador?.estado_pago === "AL_DÍA";
       const pagoB = b.jugador?.estado_pago === "AL_DÍA";
@@ -109,6 +111,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
+    // 3. Demanda inicial para ordenar sedes
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -121,6 +124,7 @@ export const armadorService = {
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
     const sedesDisponibles = ordenSedes.filter((s) => !sedesCanceladas.includes(s));
 
+    // 4. Asignación inicial
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -164,50 +168,51 @@ export const armadorService = {
       }
     }
 
-    // REASIGNACIÓN INCONDICIONAL DE FLEXIBLES
+    // 5. Trueque condicionado (Regla exacta de Google Apps Script)
     sedesDisponibles.forEach((sedeIncompleta) => {
       const cupoTotal = capacidades[sedeIncompleta];
-      while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
-        let jugadorFlexible: Inscripcion | null = null;
-        let sedeOrigen: Sede | null = null;
-        let esSuplente = false;
+      const anotados = sedes[sedeIncompleta].titulares.length;
+      const faltantes = cupoTotal - anotados;
 
-        for (const otraSede of sedesDisponibles) {
+      if (faltantes > 0) {
+        let truequesDisponibles = 0;
+        sedesDisponibles.forEach((otraSede) => {
           if (otraSede !== sedeIncompleta) {
-            const idxSupl = sedes[otraSede].suplentes.findIndex((j) => j.flexible);
-            if (idxSupl !== -1) {
-              jugadorFlexible = sedes[otraSede].suplentes.splice(idxSupl, 1)[0];
-              sedeOrigen = otraSede;
-              esSuplente = true;
-              break;
-            }
+            const flexiblesEnConv = sedes[otraSede].titulares.filter((j) => j.flexible).length;
+            const suplentesEsperando = sedes[otraSede].suplentes.length;
+            truequesDisponibles += Math.min(flexiblesEnConv, suplentesEsperando);
           }
-        }
+        });
 
-        if (!jugadorFlexible) {
-          for (const otraSede of sedesDisponibles) {
-            if (otraSede !== sedeIncompleta) {
-              for (let j = sedes[otraSede].titulares.length - 1; j >= 0; j--) {
-                if (sedes[otraSede].titulares[j].flexible) {
-                  jugadorFlexible = sedes[otraSede].titulares.splice(j, 1)[0];
-                  sedeOrigen = otraSede;
-                  esSuplente = false;
+        // Solo procede si los trueques con reemplazo alcanzan para completar la sede
+        if (truequesDisponibles >= faltantes) {
+          while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
+            let truequeRealizado = false;
+
+            for (const sedeLlena of sedesDisponibles) {
+              if (sedeLlena !== sedeIncompleta && sedes[sedeLlena].suplentes.length > 0) {
+                let indexFlexible = -1;
+                for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
+                  if (sedes[sedeLlena].titulares[j].flexible) {
+                    indexFlexible = j;
+                    break;
+                  }
+                }
+
+                if (indexFlexible !== -1) {
+                  const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
+                  sedes[sedeIncompleta].titulares.push(jugadorFlexible);
+
+                  const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
+                  sedes[sedeLlena].titulares.push(suplentePromovido);
+
+                  truequeRealizado = true;
                   break;
                 }
               }
-              if (jugadorFlexible) break;
             }
+            if (!truequeRealizado) break;
           }
-        }
-
-        if (jugadorFlexible && sedeOrigen) {
-          sedes[sedeIncompleta].titulares.push(jugadorFlexible);
-          if (!esSuplente && sedes[sedeOrigen].suplentes.length > 0) {
-            const promovido = sedes[sedeOrigen].suplentes.shift()!;
-            sedes[sedeOrigen].titulares.push(promovido);
-          }
-        } else {
-          break;
         }
       }
     });
