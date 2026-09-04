@@ -11,7 +11,6 @@ export interface ResultadoArmado {
   noAsignados: Inscripcion[];
 }
 
-// Evaluadores de texto/booleano idénticos a las reglas del Formulario
 const esVerdadero = (val: unknown): boolean => {
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return val === 1;
@@ -63,10 +62,35 @@ const jugadorAceptaLluvia = (insc: Inscripcion): boolean => {
 
 export const armadorService = {
   async armarEquipos(convocatoriaId: string): Promise<ResultadoArmado> {
+    // 0. BORRÓN Y CUENTA NUEVA: Resetear asignaciones y estados previos
+    await supabase
+      .from("equipos_asignados")
+      .delete()
+      .eq("convocatoria_id", convocatoriaId);
+
+    await supabase
+      .from("inscripciones")
+      .update({ estado: "PENDIENTE", motivo_no_asignacion: null })
+      .eq("convocatoria_id", convocatoriaId);
+
+    // 1. Obtener inscripciones frescas, configuración y convocatoria
     const [resInsc, resConfig, resConv] = await Promise.all([
-      supabase.from("inscripciones").select("*, jugador:jugadores(*)").eq("convocatoria_id", convocatoriaId).order("timestamp_inscripcion", { ascending: true }),
-      supabase.from("configuracion_panel").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("convocatorias").select("*").eq("id", convocatoriaId).single(),
+      supabase
+        .from("inscripciones")
+        .select("*, jugador:jugadores(*)")
+        .eq("convocatoria_id", convocatoriaId)
+        .order("timestamp_inscripcion", { ascending: true }),
+      supabase
+        .from("configuracion_panel")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("convocatorias")
+        .select("*")
+        .eq("id", convocatoriaId)
+        .single(),
     ]);
 
     if (resInsc.error) throw resInsc.error;
@@ -100,7 +124,7 @@ export const armadorService = {
       PUERTOS: puertos10vs10 ? 20 : 14,
     };
 
-    // 1. Filtrado de lluvia
+    // 2. Filtrado estricto por lluvia
     const jugadoresValidos: Inscripcion[] = [];
     const idsExcluidosLluvia: string[] = [];
 
@@ -112,7 +136,7 @@ export const armadorService = {
       }
     });
 
-    // 2. Orden de prioridad estricto: 1° Pago al día -> 2° VIP -> 3° Timestamp / Orden de llegada
+    // 3. Orden de prioridad estricto: 1° Pago al día -> 2° VIP -> 3° Timestamp
     const compararPrioridad = (a: Inscripcion, b: Inscripcion) => {
       const pagoA = a.jugador?.estado_pago === "AL_DÍA";
       const pagoB = b.jugador?.estado_pago === "AL_DÍA";
@@ -127,7 +151,7 @@ export const armadorService = {
 
     jugadoresValidos.sort(compararPrioridad);
 
-    // 3. Demanda inicial para determinar qué sede se arma primero (igual que ordenHojas.sort en Apps Script)
+    // 4. Calcular demanda para definir orden de sedes
     const ordenSedes: Sede[] = [...SEDES];
     const demandaSedes: Record<Sede, number> = { CANTON: 0, SM: 0, PUERTOS: 0 };
 
@@ -139,7 +163,7 @@ export const armadorService = {
 
     ordenSedes.sort((a, b) => demandaSedes[b] - demandaSedes[a]);
 
-    // 4. Asignación inicial (Paso 1, 2 y 3 del script de Google Sheets)
+    // 5. Asignación limpia desde cero
     const sedes: Record<Sede, { titulares: Inscripcion[]; suplentes: Inscripcion[] }> = {
       CANTON: { titulares: [], suplentes: [] },
       SM: { titulares: [], suplentes: [] },
@@ -154,13 +178,13 @@ export const armadorService = {
       const sedeActiva = !sedesCanceladas.includes(pref);
       const jugFlexible = esFlexible(jug.flexible);
 
-      // Paso 1: Intenta entrar en su sede preferida si está activa
+      // A) Entra a su sede preferida si hay lugar y está activa
       if (sedeActiva && sedes[pref].titulares.length < capacidades[pref]) {
         sedes[pref].titulares.push(jug);
         asignado = true;
       }
 
-      // Paso 2: Si no pudo (llena o inactiva) y ES FLEXIBLE, busca en otra sede activa por orden de demanda
+      // B) Si no pudo entrar y ES FLEXIBLE, busca lugar en otra sede activa
       if (!asignado && jugFlexible) {
         for (const otraSede of ordenSedes) {
           if (!sedesCanceladas.includes(otraSede) && sedes[otraSede].titulares.length < capacidades[otraSede]) {
@@ -171,7 +195,7 @@ export const armadorService = {
         }
       }
 
-      // Paso 3: Si no entró como titular, va a suplentes
+      // C) Si no entró como titular, va a suplentes
       if (!asignado) {
         if (sedeActiva) {
           sedes[pref].suplentes.push(jug);
@@ -187,7 +211,7 @@ export const armadorService = {
       }
     }
 
-    // 5. Trueque condicionado a llenar la sede (Réplica matemática exacta del Apps Script)
+    // 6. Trueque condicionado a llenar la sede (Regla exacta de Apps Script)
     ordenSedes.forEach((sedeIncompleta) => {
       if (!sedesCanceladas.includes(sedeIncompleta)) {
         const cupoTotal = capacidades[sedeIncompleta];
@@ -204,7 +228,6 @@ export const armadorService = {
             }
           });
 
-          // SOLO se ejecutan cambios si los trueques con reemplazo alcanzan para LLENAR la sede
           if (truequesDisponibles >= faltantes) {
             while (sedes[sedeIncompleta].titulares.length < cupoTotal) {
               let truequeRealizado = false;
@@ -242,20 +265,13 @@ export const armadorService = {
       }
     });
 
-    // 6. Reordenamiento final por prioridad
+    // 7. Ordenar listas finales
     for (const sede of SEDES) {
       sedes[sede].titulares.sort(compararPrioridad);
       sedes[sede].suplentes.sort(compararPrioridad);
     }
 
-    // 7. Persistencia en Supabase
-    const { error: errDelete } = await supabase
-      .from("equipos_asignados")
-      .delete()
-      .eq("convocatoria_id", convocatoriaId);
-
-    if (errDelete) throw errDelete;
-
+    // 8. Persistir nuevos asignados
     let ordenConvocatoria = 1;
     const filas: Record<string, unknown>[] = [];
     const idsTitulares: string[] = [];
@@ -289,7 +305,7 @@ export const armadorService = {
       if (errInsert) throw errInsert;
     }
 
-    // 8. Actualizaciones en lote
+    // 9. Actualización final de estados
     const promesasActualizacion = [];
     if (idsTitulares.length > 0) {
       promesasActualizacion.push(
