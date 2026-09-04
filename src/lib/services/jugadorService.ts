@@ -3,14 +3,44 @@ import type { EstadisticasJugador, EstadoPago, Jugador } from "@/lib/types";
 
 export const jugadorService = {
   async crearOActualizarJugador(jugador: Partial<Jugador>): Promise<Jugador> {
-    const { data, error } = await supabase
+    const emailLimpio = (jugador.email || "").trim().toLowerCase();
+
+    // 1. Buscamos explícitamente si el correo ya existe
+    const { data: existente } = await supabase
       .from("jugadores")
-      .upsert([jugador as never], { onConflict: "email" })
+      .select("*")
+      .eq("email", emailLimpio)
+      .maybeSingle();
+
+    if (existente) {
+      // 2. Si existe, FORZAMOS la actualización (ej. pisa FerB por FrrB)
+      const { data: actualizado, error: errUpdate } = await supabase
+        .from("jugadores")
+        .update({
+          nombre: jugador.nombre ?? existente.nombre,
+          apodo: jugador.apodo ?? existente.apodo,
+          sede_preferida: jugador.sede_preferida ?? existente.sede_preferida,
+          flexible: jugador.flexible ?? existente.flexible,
+          juega_con_lluvia: jugador.juega_con_lluvia ?? existente.juega_con_lluvia,
+          es_vip: jugador.es_vip ?? existente.es_vip,
+        })
+        .eq("id", existente.id)
+        .select()
+        .single();
+
+      if (errUpdate) throw errUpdate;
+      return actualizado as unknown as Jugador;
+    }
+
+    // 3. Si no existe, lo insertamos limpio
+    const { data: nuevo, error: errInsert } = await supabase
+      .from("jugadores")
+      .insert([{ ...jugador, email: emailLimpio } as never])
       .select()
       .single();
 
-    if (error) throw error;
-    return data as unknown as Jugador;
+    if (errInsert) throw errInsert;
+    return nuevo as unknown as Jugador;
   },
 
   async obtenerPorEmail(email: string): Promise<Jugador | null> {
