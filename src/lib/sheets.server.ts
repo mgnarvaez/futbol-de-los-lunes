@@ -117,6 +117,33 @@ export async function leerInscriptos(): Promise<InscriptoSheet[]> {
   return filas;
 }
 
+/** Parsea "1/9/2026 10:24:49" o "1/9/2026" (formato d/m/aaaa de Google). */
+function parsearFecha(valor: string): Date | null {
+  const [fechaParte] = valor.trim().split(" ");
+  const partes = (fechaParte ?? "").split(/[/-]/).map((p) => Number(p));
+  const [d, m, a] = partes;
+  if (!d || !m || !a) return null;
+  const anio = a < 100 ? 2000 + a : a;
+  const fecha = new Date(anio, m - 1, d);
+  return Number.isNaN(fecha.getTime()) ? null : fecha;
+}
+
+/** Edad de hoy = edad declarada + años completos transcurridos desde la inscripción. */
+function edadActual(edadDeclarada: string, fechaInscripcion: string): string {
+  const base = Number(edadDeclarada.replace(/\D/g, ""));
+  const fecha = parsearFecha(fechaInscripcion);
+  if (!base || !fecha) return edadDeclarada;
+
+  const hoy = new Date();
+  let anios = hoy.getFullYear() - fecha.getFullYear();
+  const antesDelAniversario =
+    hoy.getMonth() < fecha.getMonth() ||
+    (hoy.getMonth() === fecha.getMonth() && hoy.getDate() < fecha.getDate());
+  if (antesDelAniversario) anios -= 1;
+
+  return String(base + Math.max(0, anios));
+}
+
 export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
   const data = (await sheetsGet(
     `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:L`,
@@ -124,17 +151,23 @@ export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
   )) as { values?: string[][] };
 
   return (data.values ?? [])
-    .map((row) => ({
-      email: texto(row, 1).toLowerCase(),
-      email_alternativo: texto(row, 11).toLowerCase(),
-      nombre: texto(row, 2),
-      apodo: texto(row, 3),
-      telefono: texto(row, 4),
-      edad: texto(row, 5),
-      barrio: texto(row, 6),
-      lote: texto(row, 7),
-      puesto: texto(row, 8),
-    }))
+    .map((row) => {
+      const fecha_inscripcion = texto(row, 0);
+      const edad_declarada = texto(row, 5);
+      return {
+        email: texto(row, 1).toLowerCase(),
+        email_alternativo: texto(row, 11).toLowerCase(),
+        nombre: texto(row, 2),
+        apodo: texto(row, 3),
+        telefono: texto(row, 4),
+        edad: edadActual(edad_declarada, fecha_inscripcion),
+        edad_declarada,
+        fecha_inscripcion,
+        barrio: texto(row, 6),
+        lote: texto(row, 7),
+        puesto: texto(row, 8),
+      };
+    })
     .filter((j) => j.email || j.nombre)
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
