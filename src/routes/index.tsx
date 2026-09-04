@@ -18,7 +18,13 @@ import {
 } from "@/lib/services/sincronizacionService";
 import { obtenerInscriptosSheet } from "@/lib/sheets.functions";
 import { useAppStore } from "@/lib/store";
-import { SEDES, SEDE_LABELS, type EstadoPago, type Sede } from "@/lib/types";
+import {
+  SEDES,
+  SEDE_LABELS,
+  type EstadoPago,
+  type Inscripcion,
+  type Sede,
+} from "@/lib/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
