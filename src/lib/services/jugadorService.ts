@@ -5,7 +5,7 @@ export const jugadorService = {
   async crearOActualizarJugador(jugador: Partial<Jugador>): Promise<Jugador> {
     const emailLimpio = (jugador.email || "").trim().toLowerCase();
 
-    // 1. Buscamos explícitamente si el correo ya existe
+    // 1. Buscar si existe
     const { data: existente } = await supabase
       .from("jugadores")
       .select("*")
@@ -13,12 +13,15 @@ export const jugadorService = {
       .maybeSingle();
 
     if (existente) {
-      // 2. Si existe, FORZAMOS la actualización (ej. pisa FerB por FrrB)
+      // 2. ACTUALIZACIÓN FORZADA: Obligamos a la base a tomar el apodo nuevo que viene de Google Sheets
+      const apodoNuevo = jugador.apodo && jugador.apodo.trim() !== "" ? jugador.apodo : existente.apodo;
+      const nombreNuevo = jugador.nombre && jugador.nombre.trim() !== "" ? jugador.nombre : existente.nombre;
+
       const { data: actualizado, error: errUpdate } = await supabase
         .from("jugadores")
         .update({
-          nombre: jugador.nombre ?? existente.nombre,
-          apodo: jugador.apodo ?? existente.apodo,
+          nombre: nombreNuevo,
+          apodo: apodoNuevo,
           sede_preferida: jugador.sede_preferida ?? existente.sede_preferida,
           flexible: jugador.flexible ?? existente.flexible,
           juega_con_lluvia: jugador.juega_con_lluvia ?? existente.juega_con_lluvia,
@@ -32,7 +35,7 @@ export const jugadorService = {
       return actualizado as unknown as Jugador;
     }
 
-    // 3. Si no existe, lo insertamos limpio
+    // 3. Si es nuevo, lo inserta
     const { data: nuevo, error: errInsert } = await supabase
       .from("jugadores")
       .insert([{ ...jugador, email: emailLimpio } as never])
