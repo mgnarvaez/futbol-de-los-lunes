@@ -96,6 +96,33 @@ export const convocatoriaService = {
     return (data ?? []) as unknown as Inscripcion[];
   },
 
+  /** Da de baja a un inscripto: lo saca de la convocatoria y lo registra en el historial. */
+  async darDeBaja(inscripcion: Inscripcion, motivo?: string): Promise<void> {
+    const { error: errorHistorial } = await supabase.from("historial_asistencias").insert([
+      {
+        jugador_id: inscripcion.jugador_id,
+        convocatoria_id: inscripcion.convocatoria_id,
+        sede_id: inscripcion.sede_preferida,
+        asistio: false,
+        estado: "SE_BAJÓ",
+        motivo: motivo ?? null,
+      },
+    ]);
+    if (errorHistorial) throw errorHistorial;
+
+    const { error } = await supabase
+      .from("inscripciones")
+      .delete()
+      .eq("id", inscripcion.id);
+    if (error) throw error;
+
+    await supabase
+      .from("equipos_asignados")
+      .delete()
+      .eq("convocatoria_id", inscripcion.convocatoria_id)
+      .eq("jugador_id", inscripcion.jugador_id);
+  },
+
   async listarSedes(): Promise<SedeInfo[]> {
     const { data, error } = await supabase
       .from("sedes")
