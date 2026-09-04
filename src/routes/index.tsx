@@ -164,6 +164,21 @@ function Panel() {
     }
   };
 
+  const bajar = async (inscripcion: Inscripcion) => {
+    setBajando(inscripcion.id);
+    try {
+      await convocatoriaService.darDeBaja(inscripcion);
+      toast.success(
+        `${inscripcion.jugador?.apodo || "El jugador"} se dio de baja de hoy`,
+      );
+      await cargarConvocatoriaDelDia();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al dar de baja");
+    } finally {
+      setBajando(null);
+    }
+  };
+
   return (
     <AppShell
       title="Panel de control"
