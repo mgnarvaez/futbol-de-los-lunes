@@ -299,7 +299,7 @@ function Panel() {
                     {i.apodo || i.email}
                   </span>
                   {i.vip && <Badge>VIP</Badge>}
-                  <Badge variant="outline">{i.sede ?? i.turno || "Sin turno"}</Badge>
+                  <Badge variant="outline">{i.sede ?? (i.turno || "Sin turno")}</Badge>
                   {i.flexible && <Badge variant="secondary">Flexible</Badge>}
                   {!i.juega_con_lluvia && (
                     <Badge variant="destructive">No juega con lluvia</Badge>
