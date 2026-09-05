@@ -35,16 +35,29 @@ function ConvocadosPage() {
     try {
       const conv = await convocatoriaService.obtenerConvocatoriaDelDia();
       setConvocatoria(conv);
-      if (conv) {
-        // Acá estaba el error: ahora extraemos solo ".equipos" del resultado
-        const resultado = await armadorService.armarEquipos(conv.id);
-        setEquipos(resultado.equipos);
-      } else {
-        setEquipos(null);
-      }
-      toast.success("Armado de sedes actualizado correctamente");
+      setEquipos(conv ? await armadorService.obtenerEquipos(conv.id) : null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al cargar convocados");
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  const rearmar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const conv = await convocatoriaService.obtenerConvocatoriaDelDia();
+      setConvocatoria(conv);
+      if (!conv) {
+        setEquipos(null);
+        toast.error("No hay convocatoria para hoy");
+        return;
+      }
+      const resultado = await armadorService.armarEquipos(conv.id);
+      setEquipos(resultado.equipos);
+      toast.success("Convocados actualizados");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al armar convocados");
     } finally {
       setCargando(false);
     }
@@ -53,6 +66,7 @@ function ConvocadosPage() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
 
   const exportar = () => {
     if (!equipos) return;
