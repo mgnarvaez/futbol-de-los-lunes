@@ -38,14 +38,17 @@ const esFlexible = (val: unknown): boolean => {
 
 const jugadorAceptaLluvia = (insc: Inscripcion): boolean => {
   const record = insc as unknown as Record<string, unknown>;
-  const jugadorRecord = (record.jugador as Record<string, unknown>) || {};
+  const jugadorRecord = (record["jugador"] as Record<string, unknown>) || {};
 
-  const posiblesValores = [
-    record.juega_con_lluvia, record.juega_lluvia, record.juegaConLluvia,
-    record.si_llueve_juega, record.juega_si_llueve, record.lluvia,
-    jugadorRecord.juega_con_lluvia, jugadorRecord.juega_lluvia, jugadorRecord.juegaConLluvia,
-    jugadorRecord.si_llueve_juega, jugadorRecord.juega_si_llueve, jugadorRecord.lluvia,
+  const claves = [
+    "juega_con_lluvia", "juega_lluvia", "juegaConLluvia",
+    "si_llueve_juega", "juega_si_llueve", "lluvia",
   ];
+  const posiblesValores = [
+    ...claves.map((k) => record[k]),
+    ...claves.map((k) => jugadorRecord[k]),
+  ];
+
 
   for (const val of posiblesValores) {
     if (val === undefined || val === null) continue;
@@ -105,18 +108,18 @@ export const armadorService = {
     const configRecord = config as unknown as Record<string, unknown> | null;
 
     const suspensionLluvia =
-      esVerdadero(convRecord?.suspension_lluvia) ||
-      esVerdadero(convRecord?.lluvia) ||
-      esVerdadero(configRecord?.suspension_lluvia) ||
-      esVerdadero(configRecord?.lluvia);
+      esVerdadero(convRecord?.["suspension_lluvia"]) ||
+      esVerdadero(convRecord?.["lluvia"]) ||
+      esVerdadero(configRecord?.["suspension_lluvia"]) ||
+      esVerdadero(configRecord?.["lluvia"]);
 
-    let sedesCanceladas = ((convRecord?.sedes_canceladas as string[]) ?? []) as string[];
+    let sedesCanceladas = ((convRecord?.["sedes_canceladas"] as string[]) ?? []) as string[];
 
     if (suspensionLluvia && !sedesCanceladas.includes("CANTON")) {
       sedesCanceladas = [...sedesCanceladas, "CANTON"];
     }
 
-    const puertos10vs10 = esVerdadero(configRecord?.puertos_10vs10);
+    const puertos10vs10 = esVerdadero(configRecord?.["puertos_10vs10"]);
 
     const capacidades: Record<Sede, number> = {
       CANTON: 14,
@@ -246,7 +249,7 @@ export const armadorService = {
                 ) {
                   let indexFlexible = -1;
                   for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
-                    if (esFlexible(sedes[sedeLlena].titulares[j].flexible)) {
+                    if (esFlexible(sedes[sedeLlena].titulares[j]?.flexible)) {
                       indexFlexible = j;
                       break;
                     }
@@ -254,7 +257,7 @@ export const armadorService = {
 
                   if (indexFlexible !== -1) {
                     const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
-                    sedes[sedeIncompleta].titulares.push(jugadorFlexible);
+                    if (jugadorFlexible) sedes[sedeIncompleta].titulares.push(jugadorFlexible);
 
                     const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
                     sedes[sedeLlena].titulares.push(suplentePromovido);
@@ -307,7 +310,9 @@ export const armadorService = {
     }
 
     if (filas.length > 0) {
-      const { error: errInsert } = await supabase.from("equipos_asignados").insert(filas as never);
+      const { error: errInsert } = await supabase
+        .from("equipos_asignados")
+        .upsert(filas as never, { onConflict: "convocatoria_id,jugador_id" });
       if (errInsert) throw errInsert;
     }
 

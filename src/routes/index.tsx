@@ -33,13 +33,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Panel del día: inscripción automática por Google Form, suspensión por lluvia, armado de equipos y control de pagos.",
+          "Panel del día: inscripción automática por Google Form, suspensión por lluvia, armado de convocados y control de pagos.",
       },
       { property: "og:title", content: "Panel de convocatorias de fútbol" },
       {
         property: "og:description",
         content:
-          "Inscripción automática desde el formulario, suspensión de sedes y armado de equipos.",
+          "Inscripción automática desde el formulario, suspensión de sedes y armado de convocados.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -160,11 +160,11 @@ function Panel() {
     try {
       const resultado = await armadorService.armarEquipos(convocatoriaActual.id);
       toast.success(
-        `Equipos armados · ${resultado.noAsignados.length} jugador(es) sin asignar`,
+        `Convocados armados · ${resultado.noAsignados.length} jugador(es) sin asignar`,
       );
       await cargarConvocatoriaDelDia();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Error al armar equipos");
+      toast.error(error instanceof Error ? error.message : "Error al armar convocados");
     } finally {
       setArmando(false);
     }
@@ -240,7 +240,7 @@ function Panel() {
                   ) : (
                     <Shuffle className="mr-2 size-4" />
                   )}
-                  Armar equipos
+                  Armar convocados
                 </Button>
               </div>
 
