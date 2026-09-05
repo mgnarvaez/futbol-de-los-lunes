@@ -127,9 +127,9 @@ function ConvocadosPage() {
       description="Titulares y suplentes convocados por sede para la fecha."
     >
       <div className="flex flex-wrap gap-2 mb-6">
-        <Button onClick={() => void cargar()} disabled={cargando}>
+        <Button onClick={() => void rearmar()} disabled={cargando}>
           <RefreshCw className={`mr-2 size-4 ${cargando ? "animate-spin" : ""}`} />
-          Armado de sedes
+          Rearmar convocados
         </Button>
         <Button variant="outline" onClick={exportar}>
           <Download className="mr-2 size-4" />
