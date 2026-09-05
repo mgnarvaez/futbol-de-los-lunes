@@ -249,7 +249,7 @@ export const armadorService = {
                 ) {
                   let indexFlexible = -1;
                   for (let j = sedes[sedeLlena].titulares.length - 1; j >= 0; j--) {
-                    if (esFlexible(sedes[sedeLlena].titulares[j].flexible)) {
+                    if (esFlexible(sedes[sedeLlena].titulares[j]?.flexible)) {
                       indexFlexible = j;
                       break;
                     }
@@ -257,7 +257,7 @@ export const armadorService = {
 
                   if (indexFlexible !== -1) {
                     const jugadorFlexible = sedes[sedeLlena].titulares.splice(indexFlexible, 1)[0];
-                    sedes[sedeIncompleta].titulares.push(jugadorFlexible);
+                    if (jugadorFlexible) sedes[sedeIncompleta].titulares.push(jugadorFlexible);
 
                     const suplentePromovido = sedes[sedeLlena].suplentes.shift()!;
                     sedes[sedeLlena].titulares.push(suplentePromovido);
