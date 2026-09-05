@@ -11,15 +11,17 @@ export const sincronizacionService = {
   ): Promise<{ nuevos: number; total: number }> {
     const { data: existentes, error: errorExistentes } = await supabase
       .from("inscripciones")
-      .select("jugador_id")
+      .select("id, jugador_id")
       .eq("convocatoria_id", convocatoriaId);
     if (errorExistentes) throw errorExistentes;
 
-    const yaInscriptos = new Set(
-      ((existentes ?? []) as { jugador_id: string }[]).map((i) => i.jugador_id),
+    const inscripcionPorJugador = new Map<string, string>();
+    ((existentes ?? []) as { id: string; jugador_id: string }[]).forEach((i) =>
+      inscripcionPorJugador.set(i.jugador_id, i.id),
     );
 
     let nuevos = 0;
+    const procesados = new Set<string>();
 
     for (const fila of inscriptos) {
       const sede = fila.sede ?? "CANTON";
@@ -34,21 +36,42 @@ export const sincronizacionService = {
         activo: true,
       });
 
-      if (yaInscriptos.has(jugador.id)) continue;
+      if (procesados.has(jugador.id)) continue;
+      procesados.add(jugador.id);
 
-      const { error } = await supabase.from("inscripciones").insert([
-        {
-          convocatoria_id: convocatoriaId,
-          jugador_id: jugador.id,
-          sede_preferida: sede,
-          flexible: fila.flexible,
-          juega_con_lluvia: fila.juega_con_lluvia,
-          estado: "NO_ASIGNADO",
-        } as never,
-      ]);
+      const datos = {
+        sede_preferida: sede,
+        flexible: fila.flexible,
+        juega_con_lluvia: fila.juega_con_lluvia,
+      };
+
+      const inscripcionExistente = inscripcionPorJugador.get(jugador.id);
+
+      if (inscripcionExistente) {
+        // La planilla es la fuente de verdad: refrescamos los datos que hayan cambiado
+        const { error } = await supabase
+          .from("inscripciones")
+          .update(datos as never)
+          .eq("id", inscripcionExistente);
+        if (error) throw error;
+        continue;
+      }
+
+      const { data: creada, error } = await supabase
+        .from("inscripciones")
+        .insert([
+          {
+            convocatoria_id: convocatoriaId,
+            jugador_id: jugador.id,
+            ...datos,
+            estado: "NO_ASIGNADO",
+          } as never,
+        ])
+        .select("id")
+        .single();
       if (error) throw error;
 
-      yaInscriptos.add(jugador.id);
+      inscripcionPorJugador.set(jugador.id, (creada as { id: string }).id);
       nuevos += 1;
     }
 
