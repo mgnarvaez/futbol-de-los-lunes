@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { InscriptoSheet } from "@/lib/sheets.server";
+import type { InscriptoSheet, JugadorPlantelSheet } from "@/lib/sheets.server";
 import { jugadorService } from "@/lib/services/jugadorService";
 
 export const FORM_URL = "https://forms.gle/71nzT7gzo4C99mxSA";
@@ -76,5 +76,54 @@ export const sincronizacionService = {
     }
 
     return { nuevos, total: inscriptos.length };
+  },
+
+  /**
+   * Toma la columna de pago de la planilla del plantel y marca a cada jugador
+   * como AL_DÍA o DEBE. Los que deben quedan al final de la prioridad.
+   */
+  async sincronizarPagos(plantel: JugadorPlantelSheet[]): Promise<{ deben: number }> {
+    const pagoPorEmail = new Map<string, boolean>();
+    for (const fila of plantel) {
+      if (fila.email) pagoPorEmail.set(fila.email.trim().toLowerCase(), fila.pago);
+      if (fila.email_alternativo) {
+        pagoPorEmail.set(fila.email_alternativo.trim().toLowerCase(), fila.pago);
+      }
+    }
+
+    const { data, error } = await supabase.from("jugadores").select("id, email, estado_pago");
+    if (error) throw error;
+
+    const jugadores = (data ?? []) as { id: string; email: string; estado_pago: string }[];
+    const alDia: string[] = [];
+    const deben: string[] = [];
+
+    for (const jug of jugadores) {
+      const pago = pagoPorEmail.get((jug.email ?? "").trim().toLowerCase());
+      if (pago === undefined) continue;
+      const objetivo = pago ? "AL_DÍA" : "DEBE";
+      if (jug.estado_pago === objetivo) {
+        if (!pago) deben.push(jug.id);
+        continue;
+      }
+      (pago ? alDia : deben).push(jug.id);
+    }
+
+    if (alDia.length > 0) {
+      const { error: err } = await supabase
+        .from("jugadores")
+        .update({ estado_pago: "AL_DÍA" } as never)
+        .in("id", alDia);
+      if (err) throw err;
+    }
+    if (deben.length > 0) {
+      const { error: err } = await supabase
+        .from("jugadores")
+        .update({ estado_pago: "DEBE" } as never)
+        .in("id", deben);
+      if (err) throw err;
+    }
+
+    return { deben: deben.length };
   },
 };
