@@ -7,7 +7,7 @@ import { useAppStore } from "@/lib/store";
 
 const NAV = [
   { to: "/", label: "Panel", icon: ClipboardList },
-  { to: "/equipos", label: "Equipos", icon: Users },
+  { to: "/equipos", label: "Convocados", icon: Users },
   { to: "/plantel", label: "Plantel", icon: UsersRound },
 ] as const;
 
