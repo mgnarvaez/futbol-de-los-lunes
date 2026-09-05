@@ -16,7 +16,7 @@ import {
   FORM_URL,
   sincronizacionService,
 } from "@/lib/services/sincronizacionService";
-import { obtenerInscriptosSheet } from "@/lib/sheets.functions";
+import { obtenerInscriptosSheet, obtenerPlantelSheet } from "@/lib/sheets.functions";
 import { useAppStore } from "@/lib/store";
 import {
   SEDES,
@@ -140,8 +140,10 @@ function Panel() {
         convocatoriaActual.id,
         filas,
       );
+      const plantel = await obtenerPlantelSheet();
+      const pagos = await sincronizacionService.sincronizarPagos(plantel);
       toast.success(
-        `${resultado.nuevos} inscripto(s) nuevo(s) de ${resultado.total} en la planilla`,
+        `${resultado.nuevos} inscripto(s) nuevo(s) de ${resultado.total} en la planilla · ${pagos.deben} sin pagar`,
       );
       await cargarConvocatoriaDelDia();
       await cargarJugadores();
