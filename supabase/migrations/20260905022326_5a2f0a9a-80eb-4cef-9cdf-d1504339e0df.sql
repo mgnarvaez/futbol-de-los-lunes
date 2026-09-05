@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX IF NOT EXISTS equipos_asignados_conv_jugador_uidx ON public.equipos_asignados (convocatoria_id, jugador_id);
+CREATE UNIQUE INDEX IF NOT EXISTS inscripciones_conv_jugador_uidx ON public.inscripciones (convocatoria_id, jugador_id);
