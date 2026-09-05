@@ -108,18 +108,18 @@ export const armadorService = {
     const configRecord = config as unknown as Record<string, unknown> | null;
 
     const suspensionLluvia =
-      esVerdadero(convRecord?.suspension_lluvia) ||
-      esVerdadero(convRecord?.lluvia) ||
-      esVerdadero(configRecord?.suspension_lluvia) ||
-      esVerdadero(configRecord?.lluvia);
+      esVerdadero(convRecord?.["suspension_lluvia"]) ||
+      esVerdadero(convRecord?.["lluvia"]) ||
+      esVerdadero(configRecord?.["suspension_lluvia"]) ||
+      esVerdadero(configRecord?.["lluvia"]);
 
-    let sedesCanceladas = ((convRecord?.sedes_canceladas as string[]) ?? []) as string[];
+    let sedesCanceladas = ((convRecord?.["sedes_canceladas"] as string[]) ?? []) as string[];
 
     if (suspensionLluvia && !sedesCanceladas.includes("CANTON")) {
       sedesCanceladas = [...sedesCanceladas, "CANTON"];
     }
 
-    const puertos10vs10 = esVerdadero(configRecord?.puertos_10vs10);
+    const puertos10vs10 = esVerdadero(configRecord?.["puertos_10vs10"]);
 
     const capacidades: Record<Sede, number> = {
       CANTON: 14,
