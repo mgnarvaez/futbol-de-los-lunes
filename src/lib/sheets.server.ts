@@ -33,6 +33,7 @@ export interface JugadorPlantelSheet {
   barrio: string;
   lote: string;
   puesto: string;
+  pago: boolean;
 }
 
 async function sheetsGet(path: string, params: [string, string][]): Promise<unknown> {
@@ -153,7 +154,7 @@ function edadActual(edadDeclarada: string, fechaInscripcion: string): string {
 
 export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
   const data = (await sheetsGet(
-    `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:L`,
+    `/spreadsheets/${SHEET_PLANTEL_ID}/values/${TAB_PLANTEL}!A2:R`,
     [["valueRenderOption", "FORMATTED_VALUE"]],
   )) as { values?: string[][] } | null;
 
@@ -177,6 +178,7 @@ export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
         barrio: texto(row, 6),
         lote: texto(row, 7),
         puesto: texto(row, 8),
+        pago: texto(row, 16).toLowerCase().startsWith("x"),
       };
     })
     .filter((j) => j.email || j.nombre)
