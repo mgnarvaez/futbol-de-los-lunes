@@ -310,7 +310,9 @@ export const armadorService = {
     }
 
     if (filas.length > 0) {
-      const { error: errInsert } = await supabase.from("equipos_asignados").insert(filas as never);
+      const { error: errInsert } = await supabase
+        .from("equipos_asignados")
+        .upsert(filas as never, { onConflict: "convocatoria_id,jugador_id" });
       if (errInsert) throw errInsert;
     }
 
