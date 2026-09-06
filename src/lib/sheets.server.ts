@@ -281,8 +281,18 @@ export async function ejecutarArmadoEquipos(): Promise<{ ok: boolean; mensaje: s
       redirect: "follow",
     });
     const texto = (await res.text()).slice(0, 500);
-    if (!res.ok) {
-      console.error(`Apps Script error [${res.status}]: ${texto}`);
+    const pideLogin =
+      res.status === 401 ||
+      /accounts\.google\.com|<!doctype html|<html/i.test(texto);
+    if (!res.ok || pideLogin) {
+      console.error(`Apps Script error [${res.status}]: ${texto.slice(0, 200)}`);
+      if (pideLogin) {
+        return {
+          ok: false,
+          mensaje:
+            "El script pide iniciar sesión. En Apps Script → Implementar → Administrar implementaciones, poné 'Quién tiene acceso: Cualquier persona' y volvé a implementar.",
+        };
+      }
       return { ok: false, mensaje: `El script respondió con error ${res.status}.` };
     }
     return { ok: true, mensaje: texto || "Equipos armados." };
