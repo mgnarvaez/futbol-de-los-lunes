@@ -15,3 +15,17 @@ export const obtenerPlantelSheet = createServerFn({ method: "GET" }).handler(
     return leerPlantel();
   },
 );
+
+export const obtenerEquiposArmadosSheet = createServerFn({ method: "GET" }).handler(
+  async (): Promise<import("@/lib/sheets.server").EquipoSede[]> => {
+    const { leerEquiposArmados } = await import("@/lib/sheets.server");
+    return leerEquiposArmados();
+  },
+);
+
+export const correrArmadoEquipos = createServerFn({ method: "POST" }).handler(
+  async (): Promise<{ ok: boolean; mensaje: string }> => {
+    const { ejecutarArmadoEquipos } = await import("@/lib/sheets.server");
+    return ejecutarArmadoEquipos();
+  },
+);
