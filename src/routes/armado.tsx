@@ -69,6 +69,19 @@ function ListaEquipo({
   );
 }
 
+function enviarPorWhatsApp(eq: EquipoSede) {
+  const linea = (j: JugadorEquipo, i: number) =>
+    `${i + 1}. ${j.nombre}${j.puesto ? ` (${j.puesto})` : ""}`;
+
+  let texto = `⚽ *EQUIPOS - ${SEDE_LABELS[eq.sede]}*\n\n`;
+  texto += `*⚪ Blancos ${eq.puntajeBlancos}:*\n`;
+  texto += eq.blancos.map(linea).join("\n");
+  texto += `\n\n*⚫ Negros ${eq.puntajeNegros}:*\n`;
+  texto += eq.negros.map(linea).join("\n");
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+}
+
 function ArmadoPage() {
   const [equipos, setEquipos] = useState<EquipoSede[]>([]);
   const [cargando, setCargando] = useState(true);
