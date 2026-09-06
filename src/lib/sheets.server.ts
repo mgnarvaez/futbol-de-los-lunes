@@ -184,3 +184,110 @@ export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
     .filter((j) => j.email || j.nombre)
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
+
+/* ------------------------------------------------------------------ */
+/* Planilla de puntajes y armado de equipos (script propio del usuario) */
+/* ------------------------------------------------------------------ */
+
+export const SHEET_EQUIPOS_ID = "1vAkjAgb7A7glehP2N2IUhph4ILCHEtELdv9_Ckic8to";
+
+const TAB_EQUIPOS: Record<Sede, string> = {
+  CANTON: "Equipos CANTON",
+  SM: "Equipos SM",
+  PUERTOS: "Equipos PUERTOS",
+};
+
+export interface JugadorEquipo {
+  nombre: string;
+  puesto: string;
+}
+
+export interface EquipoSede {
+  sede: Sede;
+  puntajeBlancos: string;
+  puntajeNegros: string;
+  blancos: JugadorEquipo[];
+  negros: JugadorEquipo[];
+}
+
+const RE_PUESTO = /(ARQ|DEF|MED|DEL)\s*$/i;
+
+function parsearJugador(celda: string): JugadorEquipo | null {
+  const valor = (celda ?? "").toString().trim();
+  if (!valor) return null;
+  const match = valor.match(RE_PUESTO);
+  const puesto = match?.[1]?.toUpperCase() ?? "";
+  const nombre = valor
+    .replace(RE_PUESTO, "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "")
+    .trim();
+  if (!nombre) return null;
+  return { nombre, puesto };
+}
+
+function parsearPuntaje(encabezado: string): string {
+  const m = (encabezado ?? "").match(/\(([^)]+)\)/);
+  return m?.[1] ?? "-";
+}
+
+export async function leerEquiposArmados(): Promise<EquipoSede[]> {
+  const ranges: [string, string][] = (Object.values(TAB_EQUIPOS) as string[]).map(
+    (tab) => ["ranges", `${tab}!A1:B30`],
+  );
+  const data = (await sheetsGet(
+    `/spreadsheets/${SHEET_EQUIPOS_ID}/values:batchGet`,
+    [...ranges, ["valueRenderOption", "FORMATTED_VALUE"]],
+  )) as { valueRanges?: { values?: string[][] }[] } | null;
+
+  const sedes = Object.keys(TAB_EQUIPOS) as Sede[];
+  return sedes.map((sede, i) => {
+    const filas = data?.valueRanges?.[i]?.values ?? [];
+    const encabezado = filas[0] ?? [];
+    const blancos: JugadorEquipo[] = [];
+    const negros: JugadorEquipo[] = [];
+    for (const fila of filas.slice(1)) {
+      const b = parsearJugador(fila[0] ?? "");
+      if (b) blancos.push(b);
+      const n = parsearJugador(fila[1] ?? "");
+      if (n) negros.push(n);
+    }
+    return {
+      sede,
+      puntajeBlancos: parsearPuntaje(encabezado[0] ?? ""),
+      puntajeNegros: parsearPuntaje(encabezado[1] ?? ""),
+      blancos,
+      negros,
+    };
+  });
+}
+
+/**
+ * Corre el script de armado publicado como aplicación web de Google Apps Script.
+ */
+export async function ejecutarArmadoEquipos(): Promise<{ ok: boolean; mensaje: string }> {
+  const url = process.env["APPS_SCRIPT_EQUIPOS_URL"];
+  if (!url) {
+    return {
+      ok: false,
+      mensaje:
+        "Falta configurar el link de la aplicación web del script de armado de equipos.",
+    };
+  }
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "armar" }),
+      redirect: "follow",
+    });
+    const texto = (await res.text()).slice(0, 500);
+    if (!res.ok) {
+      console.error(`Apps Script error [${res.status}]: ${texto}`);
+      return { ok: false, mensaje: `El script respondió con error ${res.status}.` };
+    }
+    return { ok: true, mensaje: texto || "Equipos armados." };
+  } catch (error) {
+    console.error("Error al llamar al script de armado:", error);
+    return { ok: false, mensaje: "No se pudo contactar al script de armado." };
+  }
+}

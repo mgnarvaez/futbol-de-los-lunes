@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ArmadoRouteImport } from './routes/armado'
 import { Route as EquiposRouteImport } from './routes/equipos'
 import { Route as PlantelRouteImport } from './routes/plantel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArmadoRoute = ArmadoRouteImport.update({
+  id: '/armado',
+  path: '/armado',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EquiposRoute = EquiposRouteImport.update({
@@ -31,30 +37,34 @@ const PlantelRoute = PlantelRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/armado': typeof ArmadoRoute
   '/equipos': typeof EquiposRoute
   '/plantel': typeof PlantelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/armado': typeof ArmadoRoute
   '/equipos': typeof EquiposRoute
   '/plantel': typeof PlantelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/armado': typeof ArmadoRoute
   '/equipos': typeof EquiposRoute
   '/plantel': typeof PlantelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/equipos' | '/plantel'
+  fullPaths: '/' | '/armado' | '/equipos' | '/plantel'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/equipos' | '/plantel'
-  id: '__root__' | '/' | '/equipos' | '/plantel'
+  to: '/' | '/armado' | '/equipos' | '/plantel'
+  id: '__root__' | '/' | '/armado' | '/equipos' | '/plantel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ArmadoRoute: typeof ArmadoRoute
   EquiposRoute: typeof EquiposRoute
   PlantelRoute: typeof PlantelRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/armado': {
+      id: '/armado'
+      path: '/armado'
+      fullPath: '/armado'
+      preLoaderRoute: typeof ArmadoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/equipos': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ArmadoRoute: ArmadoRoute,
   EquiposRoute: EquiposRoute,
   PlantelRoute: PlantelRoute,
 }
