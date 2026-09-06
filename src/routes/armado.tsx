@@ -124,8 +124,17 @@ function ArmadoPage() {
 
       {equipos.map((eq) => (
         <Card key={eq.sede}>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle>{SEDE_LABELS[eq.sede]}</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => enviarPorWhatsApp(eq)}
+              disabled={eq.blancos.length === 0 && eq.negros.length === 0}
+            >
+              <MessageCircle className="mr-2 size-4" />
+              WhatsApp
+            </Button>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 sm:flex-row">
             <ListaEquipo titulo="Blancos" puntaje={eq.puntajeBlancos} jugadores={eq.blancos} />
