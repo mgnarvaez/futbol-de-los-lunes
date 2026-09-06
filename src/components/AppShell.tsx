@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ClipboardList, Moon, Sun, Users, UsersRound } from "lucide-react";
+import { ClipboardList, Moon, Shuffle, Sun, Users, UsersRound } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,10 @@ import { useAppStore } from "@/lib/store";
 const NAV = [
   { to: "/", label: "Panel", icon: ClipboardList },
   { to: "/equipos", label: "Convocados", icon: Users },
+  { to: "/armado", label: "Equipos", icon: Shuffle },
   { to: "/plantel", label: "Plantel", icon: UsersRound },
 ] as const;
+
 
 export function AppShell({
   title,
