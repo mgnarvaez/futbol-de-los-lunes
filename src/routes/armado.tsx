@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { RefreshCw, Shuffle } from "lucide-react";
+import { MessageCircle, RefreshCw, Shuffle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
