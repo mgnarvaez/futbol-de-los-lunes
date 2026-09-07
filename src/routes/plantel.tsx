@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, MessageCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { obtenerPlantelSheet } from "@/lib/sheets.functions";
 
 export const Route = createFileRoute("/plantel")({
@@ -50,6 +51,13 @@ function PlantelPage() {
     );
   }, [data, busqueda]);
 
+  const abrirWhatsApp = (telefono?: string, nombre?: string) => {
+    if (!telefono) return;
+    const numeroLimpidio = telefono.replace(/\D/g, "");
+    const mensaje = encodeURIComponent(`Hola ${nombre || ""}, te escribo desde la app de convocatorias de fútbol.`);
+    window.open(`https://wa.me/${numeroLimpidio}?text=${mensaje}`, "_blank");
+  };
+
   return (
     <AppShell
       title="Plantel"
@@ -89,6 +97,17 @@ function PlantelPage() {
                       {j.apodo || j.nombre}
                     </p>
                     {j.puesto && <Badge variant="secondary">{j.puesto}</Badge>}
+                    {j.telefono && (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="size-8 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                        title="Enviar mensaje por WhatsApp"
+                        onClick={() => abrirWhatsApp(j.telefono, j.apodo || j.nombre)}
+                      >
+                        <MessageCircle className="size-4" />
+                      </Button>
+                    )}
                   </div>
                   <p className="text-muted-foreground">{j.nombre}</p>
                   <p className="truncate text-muted-foreground">{j.email}</p>
@@ -106,12 +125,6 @@ function PlantelPage() {
                   {j.edad && (
                     <p className="text-muted-foreground">
                       {j.edad} años
-                      {j.edad_declarada && j.edad_declarada !== j.edad && (
-                        <span className="text-xs">
-                          {" "}
-                          (tenía {j.edad_declarada} al anotarse el {j.fecha_inscripcion})
-                        </span>
-                      )}
                     </p>
                   )}
                 </CardContent>
