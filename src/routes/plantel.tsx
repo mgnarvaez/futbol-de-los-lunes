@@ -53,9 +53,17 @@ function PlantelPage() {
 
   const abrirWhatsApp = (telefono?: string, nombre?: string) => {
     if (!telefono) return;
-    const numeroLimpidio = telefono.replace(/\D/g, "");
+    
+    // Quitamos espacios, guiones y cualquier símbolo (incluyendo el +)
+    let numeroLimpio = telefono.replace(/\D/g, "");
+    
+    // Si el número no empieza con el código de Argentina (54), le agregamos el 549 por defecto
+    if (!numeroLimpio.startsWith("54")) {
+      numeroLimpio = "549" + numeroLimpio;
+    }
+
     const mensaje = encodeURIComponent(`Hola ${nombre || ""}, te escribo desde la app de convocatorias de fútbol.`);
-    window.open(`https://wa.me/${numeroLimpidio}?text=${mensaje}`, "_blank");
+    window.open(`https://wa.me/${numeroLimpio}?text=${mensaje}`, "_blank");
   };
 
   return (
