@@ -51,7 +51,7 @@ function PlantelPage() {
     );
   }, [data, busqueda]);
 
-  const abrirWhatsApp = (telefono?: string, nombre?: string) => {
+  const abrirWhatsApp = (telefono?: string) => {
     if (!telefono) return;
     
     // Quitamos espacios, guiones y cualquier símbolo (incluyendo el +)
@@ -62,8 +62,8 @@ function PlantelPage() {
       numeroLimpio = "549" + numeroLimpio;
     }
 
-    const mensaje = encodeURIComponent(`Hola ${nombre || ""}, te escribo desde la app de convocatorias de fútbol.`);
-    window.open(`https://wa.me/${numeroLimpio}?text=${mensaje}`, "_blank");
+    // Abre directamente el chat sin ningún mensaje predefinido
+    window.open(`https://wa.me/${numeroLimpio}`, "_blank");
   };
 
   return (
@@ -110,8 +110,8 @@ function PlantelPage() {
                         size="icon"
                         variant="outline"
                         className="size-8 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
-                        title="Enviar mensaje por WhatsApp"
-                        onClick={() => abrirWhatsApp(j.telefono, j.apodo || j.nombre)}
+                        title="Abrir chat en WhatsApp"
+                        onClick={() => abrirWhatsApp(j.telefono)}
                       >
                         <MessageCircle className="size-4" />
                       </Button>
